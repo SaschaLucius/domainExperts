@@ -354,6 +354,18 @@
             color: var(--muted);
             margin-top: 8px;
         }
+
+        table.contrib th.sortable {
+            cursor: pointer;
+            user-select: none;
+        }
+
+        table.contrib th.sortable:hover {
+            color: var(--text);
+        }
+
+        table.contrib th.sort-asc::after { content: ' ▲'; font-size: 9px; }
+        table.contrib th.sort-desc::after { content: ' ▼'; font-size: 9px; }
     </style>
 </head>
 
@@ -399,6 +411,8 @@
         let currentPath = null;
         let currentMetric = 'commits';   // 'commits' | 'combined' | 'recency'
         let currentScope = 'all';        // 'all' | 'recent'
+        let currentSortCol = 'share';    // 'contributor' | 'share' | 'commits' | 'lines' | 'lastactive'
+        let currentSortDir = 'desc';     // 'asc' | 'desc'
         let selectedRow = null;
 
         // ---- loading --------------------------------------------------------------
@@ -422,6 +436,8 @@
             childrenByPath = new Map();
             treeIndex = new Map();
             selectedRow = null;
+            currentSortCol = 'share';
+            currentSortDir = 'desc';
 
             for (const node of data.nodes) nodesByPath.set(node.path, node);
 
@@ -711,13 +727,58 @@
         }
 
         function buildTable(rows) {
+            const dir = currentSortDir === 'asc' ? 1 : -1;
+            rows.sort((a, b) => {
+                switch (currentSortCol) {
+                    case 'contributor': return dir * ((a.c.name || a.c.email || '').localeCompare(b.c.name || b.c.email || ''));
+                    case 'commits':     return dir * (a.commitsVal - b.commitsVal);
+                    case 'lines':       return dir * (a.linesVal - b.linesVal);
+                    case 'lastactive': {
+                        if (!a.c.lastTs && b.c.lastTs) return 1;
+                        if (a.c.lastTs && !b.c.lastTs) return -1;
+                        return dir * ((a.c.lastTs || 0) - (b.c.lastTs || 0));
+                    }
+                    default: return dir * (a.raw - b.raw); // 'share'
+                }
+            });
+
             const table = document.createElement('table');
             table.className = 'contrib';
-            table.innerHTML =
-                '<thead><tr>' +
-                '<th class="num">#</th><th>Contributor</th><th class="bar-cell">Share</th>' +
-                '<th class="num">Commits</th><th class="num">Lines</th><th>Last active</th>' +
-                '</tr></thead>';
+
+            const thead = document.createElement('thead');
+            const headerRow = document.createElement('tr');
+            const cols = [
+                { id: null,          label: '#',           cls: 'num' },
+                { id: 'contributor', label: 'Contributor', cls: '' },
+                { id: 'share',       label: 'Share',       cls: 'bar-cell' },
+                { id: 'commits',     label: 'Commits',     cls: 'num' },
+                { id: 'lines',       label: 'Lines',       cls: 'num' },
+                { id: 'lastactive',  label: 'Last active', cls: '' },
+            ];
+            for (const col of cols) {
+                const th = document.createElement('th');
+                if (col.cls) th.className = col.cls;
+                th.textContent = col.label;
+                if (col.id) {
+                    th.classList.add('sortable');
+                    if (col.id === currentSortCol) {
+                        th.classList.add(currentSortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+                    }
+                    th.addEventListener('click', () => {
+                        if (currentSortCol === col.id) {
+                            currentSortDir = currentSortDir === 'desc' ? 'asc' : 'desc';
+                        } else {
+                            currentSortCol = col.id;
+                            currentSortDir = col.id === 'contributor' ? 'asc' : 'desc';
+                        }
+                        renderDetails(currentPath);
+                    });
+                }
+                headerRow.appendChild(th);
+            }
+            thead.appendChild(headerRow);
+            table.appendChild(thead);
+
             const tbody = document.createElement('tbody');
 
             let rank = 0;
