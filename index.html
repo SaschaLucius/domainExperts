@@ -317,11 +317,17 @@
         .who .name {
             font-weight: 600;
             font-size: 14px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .who .email {
             font-size: 12px;
             color: var(--muted);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .bar-cell {
@@ -682,12 +688,12 @@
             const rows = node.contributors
                 .filter(c => !excludedDevs.has(devKey(c)))
                 .map((c) => ({
-                c,
-                commitsVal: scope === 'recent' ? c.commitsRecent : c.commits,
-                linesVal: scope === 'recent' ? c.linesRecent : c.lines,
-                raw: 0,
-                pct: 0,
-            }));
+                    c,
+                    commitsVal: scope === 'recent' ? c.commitsRecent : c.commits,
+                    linesVal: scope === 'recent' ? c.linesRecent : c.lines,
+                    raw: 0,
+                    pct: 0,
+                }));
 
             let sumC = 0, sumL = 0;
             for (const r of rows) { sumC += r.commitsVal; sumL += r.linesVal; }
@@ -857,6 +863,16 @@
 
             const table = document.createElement('table');
             table.className = 'contrib';
+            table.style.tableLayout = 'fixed';
+
+            // Fixed column widths so layout doesn't shift when switching metrics
+            const colg = document.createElement('colgroup');
+            for (const w of ['36px', '', '38%', '90px', '90px', '108px']) {
+                const col = document.createElement('col');
+                if (w) col.style.width = w;
+                colg.appendChild(col);
+            }
+            table.appendChild(colg);
 
             const thead = document.createElement('thead');
             const headerRow = document.createElement('tr');
@@ -1101,6 +1117,15 @@
         function buildCoverageTable(expertList, total) {
             const table = document.createElement('table');
             table.className = 'contrib';
+            table.style.tableLayout = 'fixed';
+
+            const colg = document.createElement('colgroup');
+            for (const w of ['36px', '200px', '38%', '']) {
+                const col = document.createElement('col');
+                if (w) col.style.width = w;
+                colg.appendChild(col);
+            }
+            table.appendChild(colg);
 
             const thead = document.createElement('thead');
             const hdrRow = document.createElement('tr');
@@ -1235,6 +1260,15 @@
         function buildSubfolderTable(sfExperts, useFull = false) {
             const table = document.createElement('table');
             table.className = 'contrib';
+            table.style.tableLayout = 'fixed';
+
+            const colg = document.createElement('colgroup');
+            for (const w of ['', '220px', '100px']) {
+                const col = document.createElement('col');
+                if (w) col.style.width = w;
+                colg.appendChild(col);
+            }
+            table.appendChild(colg);
 
             const thead = document.createElement('thead');
             const hdrRow = document.createElement('tr');
