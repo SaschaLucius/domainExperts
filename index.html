@@ -364,8 +364,55 @@
             color: var(--text);
         }
 
-        table.contrib th.sort-asc::after { content: ' ▲'; font-size: 9px; }
-        table.contrib th.sort-desc::after { content: ' ▼'; font-size: 9px; }
+        table.contrib th.sort-asc::after {
+            content: ' ▲';
+            font-size: 9px;
+        }
+
+        table.contrib th.sort-desc::after {
+            content: ' ▼';
+            font-size: 9px;
+        }
+
+        .tab-bar {
+            display: flex;
+            border-bottom: 2px solid var(--border);
+            margin-bottom: 14px;
+        }
+
+        .tab-bar button {
+            background: none;
+            border: none;
+            border-bottom: 3px solid transparent;
+            margin-bottom: -2px;
+            padding: 8px 18px;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--muted);
+            cursor: pointer;
+        }
+
+        .tab-bar button:hover {
+            color: var(--text);
+        }
+
+        .tab-bar button.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+            font-weight: 600;
+        }
+
+        .section-title {
+            font-size: 13px;
+            font-weight: 600;
+            margin: 0 0 8px;
+            color: var(--text);
+        }
+
+        .domain-sections {
+            display: flex;
+            flex-direction: column;
+        }
     </style>
 </head>
 
@@ -414,6 +461,7 @@
         let currentSortCol = 'share';    // 'contributor' | 'share' | 'commits' | 'lines' | 'lastactive'
         let currentSortDir = 'desc';     // 'asc' | 'desc'
         let selectedRow = null;
+        let currentTab = 'contributors'; // 'contributors' | 'domains'
 
         // ---- loading --------------------------------------------------------------
         document.getElementById('file-input').addEventListener('change', (e) => {
@@ -438,6 +486,7 @@
             selectedRow = null;
             currentSortCol = 'share';
             currentSortDir = 'desc';
+            currentTab = 'contributors';
 
             for (const node of data.nodes) nodesByPath.set(node.path, node);
 
@@ -622,7 +671,6 @@
             host.hidden = false;
 
             const node = nodesByPath.get(p);
-            const { rows, sumC, sumL, scope } = computeRows(node);
             const recentLabel = `Recent (${data.recentDays}d)`;
 
             host.innerHTML = '';
@@ -633,30 +681,38 @@
             title.textContent = p === '' ? displayName('') : p;
             host.appendChild(title);
 
-            host.appendChild(buildControls(recentLabel));
+            host.appendChild(buildTabBar());
 
-            const summary = document.createElement('div');
-            summary.className = 'summary';
-            const activeRows = rows.filter((r) => r.commitsVal > 0 || currentMetric === 'recency');
-            summary.innerHTML =
-                `<b>${activeRows.length}</b> contributor${activeRows.length === 1 ? '' : 's'} · ` +
-                `<b>${sumC.toLocaleString()}</b> commits · ` +
-                `<b>${sumL.toLocaleString()}</b> lines changed` +
-                (scope === 'recent' ? ` · ${recentLabel}` : '');
-            host.appendChild(summary);
+            if (currentTab === 'contributors') {
+                const { rows, sumC, sumL, scope } = computeRows(node);
 
-            host.appendChild(buildTable(rows));
+                host.appendChild(buildControls(recentLabel));
 
-            const note = document.createElement('div');
-            note.className = 'note';
-            if (currentMetric === 'combined') {
-                note.textContent = `"Commits + Lines" = ${W_COMMITS} × commit share + ${W_LINES} × line share.`;
-            } else if (currentMetric === 'recency') {
-                note.textContent = `Recency-weighted: each commit decays with a ${data.halfLifeDays}-day half-life (scope toggle disabled).`;
+                const summary = document.createElement('div');
+                summary.className = 'summary';
+                const activeRows = rows.filter((r) => r.commitsVal > 0 || currentMetric === 'recency');
+                summary.innerHTML =
+                    `<b>${activeRows.length}</b> contributor${activeRows.length === 1 ? '' : 's'} · ` +
+                    `<b>${sumC.toLocaleString()}</b> commits · ` +
+                    `<b>${sumL.toLocaleString()}</b> lines changed` +
+                    (scope === 'recent' ? ` · ${recentLabel}` : '');
+                host.appendChild(summary);
+
+                host.appendChild(buildTable(rows));
+
+                const note = document.createElement('div');
+                note.className = 'note';
+                if (currentMetric === 'combined') {
+                    note.textContent = `"Commits + Lines" = ${W_COMMITS} × commit share + ${W_LINES} × line share.`;
+                } else if (currentMetric === 'recency') {
+                    note.textContent = `Recency-weighted: each commit decays with a ${data.halfLifeDays}-day half-life (scope toggle disabled).`;
+                } else {
+                    note.textContent = 'Commits: a commit is counted once per folder it touched (rolled up over the subtree).';
+                }
+                host.appendChild(note);
             } else {
-                note.textContent = 'Commits: a commit is counted once per folder it touched (rolled up over the subtree).';
+                renderDomainMapTab(p, host, recentLabel);
             }
-            host.appendChild(note);
         }
 
         function buildBreadcrumb(p) {
@@ -731,8 +787,8 @@
             rows.sort((a, b) => {
                 switch (currentSortCol) {
                     case 'contributor': return dir * ((a.c.name || a.c.email || '').localeCompare(b.c.name || b.c.email || ''));
-                    case 'commits':     return dir * (a.commitsVal - b.commitsVal);
-                    case 'lines':       return dir * (a.linesVal - b.linesVal);
+                    case 'commits': return dir * (a.commitsVal - b.commitsVal);
+                    case 'lines': return dir * (a.linesVal - b.linesVal);
                     case 'lastactive': {
                         if (!a.c.lastTs && b.c.lastTs) return 1;
                         if (a.c.lastTs && !b.c.lastTs) return -1;
@@ -748,12 +804,12 @@
             const thead = document.createElement('thead');
             const headerRow = document.createElement('tr');
             const cols = [
-                { id: null,          label: '#',           cls: 'num' },
+                { id: null, label: '#', cls: 'num' },
                 { id: 'contributor', label: 'Contributor', cls: '' },
-                { id: 'share',       label: 'Share',       cls: 'bar-cell' },
-                { id: 'commits',     label: 'Commits',     cls: 'num' },
-                { id: 'lines',       label: 'Lines',       cls: 'num' },
-                { id: 'lastactive',  label: 'Last active', cls: '' },
+                { id: 'share', label: 'Share', cls: 'bar-cell' },
+                { id: 'commits', label: 'Commits', cls: 'num' },
+                { id: 'lines', label: 'Lines', cls: 'num' },
+                { id: 'lastactive', label: 'Last active', cls: '' },
             ];
             for (const col of cols) {
                 const th = document.createElement('th');
@@ -845,6 +901,182 @@
             span.title = d.toLocaleDateString();
             if (days > 365) span.className = 'stale';
             return span;
+        }
+
+        // ---- tab 2: domain map ----------------------------------------------------
+        function buildTabBar() {
+            const bar = document.createElement('div');
+            bar.className = 'tab-bar';
+            for (const t of [
+                { id: 'contributors', label: 'Contributors' },
+                { id: 'domains', label: 'Domain Map' },
+            ]) {
+                const btn = document.createElement('button');
+                btn.textContent = t.label;
+                if (t.id === currentTab) btn.classList.add('active');
+                btn.addEventListener('click', () => {
+                    if (currentTab !== t.id) { currentTab = t.id; renderDetails(currentPath); }
+                });
+                bar.appendChild(btn);
+            }
+            return bar;
+        }
+
+        function topExpert(node) {
+            if (!node) return null;
+            const { rows } = computeRows(node);
+            const active = rows.filter(r => currentMetric === 'recency' ? r.c.score > 0 : r.commitsVal > 0);
+            return active.length > 0 ? { contributor: active[0].c, pct: active[0].pct } : null;
+        }
+
+        function renderDomainMapTab(p, host, recentLabel) {
+            host.appendChild(buildControls(recentLabel));
+
+            const kids = (childrenByPath.get(p) || []).filter(k => nodesByPath.has(k));
+
+            if (kids.length === 0) {
+                const msg = document.createElement('div');
+                msg.className = 'empty';
+                msg.style.height = '160px';
+                msg.textContent = 'No subfolders at this level.';
+                host.appendChild(msg);
+                return;
+            }
+
+            const sfExperts = kids.map(k => {
+                const ex = topExpert(nodesByPath.get(k));
+                return { path: k, contributor: ex ? ex.contributor : null, pct: ex ? ex.pct : 0 };
+            });
+
+            const total = kids.length;
+            const expertMap = new Map();
+            for (const sf of sfExperts) {
+                if (!sf.contributor) continue;
+                const key = sf.contributor.email || sf.contributor.name || '?';
+                if (!expertMap.has(key)) expertMap.set(key, { c: sf.contributor, paths: [] });
+                expertMap.get(key).paths.push(sf.path);
+            }
+            const expertList = [...expertMap.values()].sort((a, b) => b.paths.length - a.paths.length);
+
+            const sections = document.createElement('div');
+            sections.className = 'domain-sections';
+
+            const h1 = document.createElement('p');
+            h1.className = 'section-title';
+            h1.textContent = 'Expert coverage';
+            sections.appendChild(h1);
+            sections.appendChild(buildCoverageTable(expertList, total));
+
+            const h2el = document.createElement('p');
+            h2el.className = 'section-title';
+            h2el.style.marginTop = '20px';
+            h2el.textContent = 'Subfolder breakdown';
+            sections.appendChild(h2el);
+            sections.appendChild(buildSubfolderTable(sfExperts));
+
+            host.appendChild(sections);
+        }
+
+        function buildCoverageTable(expertList, total) {
+            const table = document.createElement('table');
+            table.className = 'contrib';
+
+            const thead = document.createElement('thead');
+            const hdrRow = document.createElement('tr');
+            for (const [lbl, cls] of [
+                ['#', 'num'], ['Expert', ''], ['Coverage', 'bar-cell'], ['Subfolders', ''],
+            ]) {
+                const th = document.createElement('th');
+                th.textContent = lbl;
+                if (cls) th.className = cls;
+                hdrRow.appendChild(th);
+            }
+            thead.appendChild(hdrRow);
+            table.appendChild(thead);
+
+            const tbody = document.createElement('tbody');
+            expertList.forEach((e, i) => {
+                const pct = (e.paths.length / total) * 100;
+                const tr = document.createElement('tr');
+
+                const tdR = document.createElement('td');
+                tdR.className = 'rank num';
+                tdR.textContent = i + 1;
+
+                const tdW = document.createElement('td');
+                tdW.className = 'who';
+                tdW.innerHTML = '<div class="name"></div><div class="email"></div>';
+                tdW.querySelector('.name').textContent = e.c.name || e.c.email || '(unknown)';
+                tdW.querySelector('.email').textContent = e.c.email || '';
+
+                const tdB = document.createElement('td');
+                tdB.className = 'bar-cell';
+                tdB.innerHTML =
+                    `<div class="bar-wrap"><div class="bar-track">` +
+                    `<div class="bar-fill" style="width:${pct.toFixed(1)}%"></div></div>` +
+                    `<span class="pct">${e.paths.length}/${total} (${Math.round(pct)}%)</span></div>`;
+
+                const tdF = document.createElement('td');
+                tdF.style.cssText = 'font-size:12px;color:var(--muted);';
+                tdF.textContent = e.paths.map(pk => leaf(pk)).join(', ');
+
+                tr.append(tdR, tdW, tdB, tdF);
+                tbody.appendChild(tr);
+            });
+            table.appendChild(tbody);
+            return table;
+        }
+
+        function buildSubfolderTable(sfExperts) {
+            const table = document.createElement('table');
+            table.className = 'contrib';
+
+            const thead = document.createElement('thead');
+            const hdrRow = document.createElement('tr');
+            for (const [lbl, cls] of [
+                ['Subfolder', ''], ['Expert', ''], ['Share in folder', 'num'],
+            ]) {
+                const th = document.createElement('th');
+                th.textContent = lbl;
+                if (cls) th.className = cls;
+                hdrRow.appendChild(th);
+            }
+            thead.appendChild(hdrRow);
+            table.appendChild(thead);
+
+            const tbody = document.createElement('tbody');
+            for (const sf of sfExperts) {
+                const tr = document.createElement('tr');
+
+                const tdP = document.createElement('td');
+                const a = document.createElement('a');
+                a.style.cssText = 'color:var(--accent);cursor:pointer;font-size:13px;font-weight:500;';
+                a.textContent = leaf(sf.path) + '/';
+                a.addEventListener('click', () => go(sf.path));
+                a.addEventListener('mouseenter', () => { a.style.textDecoration = 'underline'; });
+                a.addEventListener('mouseleave', () => { a.style.textDecoration = ''; });
+                tdP.appendChild(a);
+
+                const tdW = document.createElement('td');
+                if (sf.contributor) {
+                    tdW.className = 'who';
+                    tdW.innerHTML = '<div class="name"></div><div class="email"></div>';
+                    tdW.querySelector('.name').textContent = sf.contributor.name || sf.contributor.email || '(unknown)';
+                    tdW.querySelector('.email').textContent = sf.contributor.email || '';
+                } else {
+                    tdW.style.color = 'var(--muted)';
+                    tdW.textContent = '—';
+                }
+
+                const tdS = document.createElement('td');
+                tdS.className = 'num';
+                tdS.textContent = sf.contributor ? sf.pct.toFixed(1) + '%' : '—';
+
+                tr.append(tdP, tdW, tdS);
+                tbody.appendChild(tr);
+            }
+            table.appendChild(tbody);
+            return table;
         }
     </script>
 </body>
