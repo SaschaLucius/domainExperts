@@ -1194,6 +1194,18 @@
 
             const allContribs = [...rootNode.contributors].sort((a, b) => b.commits - a.commits);
 
+            const allKeys = allContribs.map(devKey);
+            const allExcluded = allKeys.every(k => excludedDevs.has(k));
+            const bulkBtn = document.createElement('button');
+            bulkBtn.textContent = allExcluded ? 'Include All' : 'Exclude All';
+            bulkBtn.style.cssText = `font-size:12px;padding:4px 14px;border-radius:6px;border:1px solid var(--border);cursor:pointer;margin-bottom:12px;background:${allExcluded ? '#fff' : '#fee2e2'};color:${allExcluded ? 'var(--text)' : '#b91c1c'};`;
+            bulkBtn.addEventListener('click', () => {
+                if (allExcluded) allKeys.forEach(k => excludedDevs.delete(k));
+                else allKeys.forEach(k => excludedDevs.add(k));
+                renderDetails(currentPath);
+            });
+            host.appendChild(bulkBtn);
+
             const table = document.createElement('table');
             table.className = 'contrib';
 
