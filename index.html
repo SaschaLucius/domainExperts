@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Domain Experts — Folder Contribution Explorer</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --border: #e2e5ea;
+    --text: #1f2330;
+    --muted: #6b7280;
+    --accent: #3b82f6;
+    --bar: #3b82f6;
+    --bar-bg: #eef2f7;
+    --selected: #e8f0fe;
+    --hover: #f0f2f5;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    padding: 12px 18px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 650; }
+  header .meta { font-size: 12px; color: var(--muted); }
+  .spacer { flex: 1; }
+  .file-label {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 13px; padding: 6px 12px; border: 1px solid var(--border);
+    border-radius: 8px; cursor: pointer; background: #fff;
+  }
+  .file-label:hover { background: var(--hover); }
+  input[type="file"] { display: none; }
+
+  main { flex: 1; display: flex; min-height: 0; }
+  #tree-panel {
+    width: 340px; min-width: 240px; max-width: 50%;
+    border-right: 1px solid var(--border);
+    background: var(--panel);
+    overflow: auto; padding: 8px 6px;
+    resize: horizontal;
+  }
+  #detail-panel { flex: 1; overflow: auto; padding: 18px 22px; }
+
+  ul.tree { list-style: none; margin: 0; padding-left: 0; }
+  ul.tree ul { list-style: none; margin: 0; padding-left: 14px; }
+  .tree-row {
+    display: flex; align-items: center; gap: 4px;
+    padding: 3px 6px; border-radius: 6px; cursor: pointer;
+    font-size: 13px; white-space: nowrap;
+  }
+  .tree-row:hover { background: var(--hover); }
+  .tree-row.selected { background: var(--selected); font-weight: 600; }
+  .toggle {
+    width: 14px; display: inline-block; text-align: center;
+    color: var(--muted); font-size: 10px; user-select: none;
+  }
+  .folder-icon { font-size: 12px; opacity: .8; }
+  .tree-row .count { color: var(--muted); font-size: 11px; font-weight: 400; }
+
+  .empty {
+    height: 100%; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; color: var(--muted);
+    text-align: center; gap: 10px;
+  }
+  .empty code { background: #eef0f3; padding: 2px 6px; border-radius: 4px; }
+
+  .breadcrumb { font-size: 13px; margin-bottom: 4px; color: var(--muted); }
+  .breadcrumb a { color: var(--accent); cursor: pointer; text-decoration: none; }
+  .breadcrumb a:hover { text-decoration: underline; }
+  h2.path-title { margin: 2px 0 12px; font-size: 20px; word-break: break-all; }
+
+  .controls {
+    display: flex; gap: 18px; flex-wrap: wrap; align-items: center;
+    padding: 10px 12px; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 10px; margin-bottom: 16px;
+  }
+  .control-group { display: flex; flex-direction: column; gap: 4px; }
+  .control-group .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .segmented { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .segmented button {
+    border: none; background: #fff; padding: 6px 12px; font-size: 13px;
+    cursor: pointer; color: var(--text);
+  }
+  .segmented button + button { border-left: 1px solid var(--border); }
+  .segmented button.active { background: var(--accent); color: #fff; }
+  .segmented button:disabled { color: #b6bcc7; cursor: not-allowed; background: #fafbfc; }
+  .summary { font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+  .summary b { color: var(--text); }
+
+  table.contrib { width: 100%; border-collapse: collapse; }
+  table.contrib th {
+    text-align: left; font-size: 11px; text-transform: uppercase;
+    letter-spacing: .04em; color: var(--muted); font-weight: 600;
+    padding: 6px 8px; border-bottom: 1px solid var(--border);
+  }
+  table.contrib th.num, table.contrib td.num { text-align: right; }
+  table.contrib td { padding: 8px; border-bottom: 1px solid #f0f1f4; vertical-align: middle; }
+  .who .name { font-weight: 600; font-size: 14px; }
+  .who .email { font-size: 12px; color: var(--muted); }
+  .bar-cell { width: 38%; min-width: 180px; }
+  .bar-wrap { display: flex; align-items: center; gap: 10px; }
+  .bar-track { flex: 1; height: 10px; background: var(--bar-bg); border-radius: 6px; overflow: hidden; }
+  .bar-fill { height: 100%; background: var(--bar); border-radius: 6px; }
+  .pct { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 52px; text-align: right; }
+  .num { font-variant-numeric: tabular-nums; }
+  .stale { color: #b45309; }
+  .rank { color: var(--muted); width: 26px; text-align: right; }
+  .note { font-size: 12px; color: var(--muted); margin-top: 8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Domain Experts</h1>
+  <div class="meta" id="repo-meta"></div>
+  <div class="spacer"></div>
+  <label class="file-label">
+    📂 Load contributions.json
+    <input type="file" id="file-input" accept="application/json,.json" />
+  </label>
+</header>
+
+<main>
+  <aside id="tree-panel">
+    <div class="empty" id="tree-empty">No data loaded</div>
+    <ul class="tree" id="tree-root" hidden></ul>
+  </aside>
+  <section id="detail-panel">
+    <div class="empty" id="detail-empty">
+      <div style="font-size:42px">🗂️</div>
+      <div><b>Folder contribution explorer</b></div>
+      <div>Generate data with <code>node generate.js /path/to/repo contributions.json</code></div>
+      <div>then load the JSON using the button in the top-right.</div>
+    </div>
+    <div id="detail-content" hidden></div>
+  </section>
+</main>
+
+<script>
+"use strict";
+
+// ---- tunables -------------------------------------------------------------
+const W_COMMITS = 0.7;   // weight of commit share in the "Commits + Lines" metric
+const W_LINES   = 0.3;   // weight of line share   in the "Commits + Lines" metric
+
+// ---- state ----------------------------------------------------------------
+let data = null;                 // parsed JSON
+let nodesByPath = new Map();     // path -> node
+let childrenByPath = new Map();  // parentPath -> [childPath,...]
+let treeIndex = new Map();       // path -> { row, expand }
+let currentPath = null;
+let currentMetric = 'commits';   // 'commits' | 'combined' | 'recency'
+let currentScope = 'all';        // 'all' | 'recent'
+let selectedRow = null;
+
+// ---- loading --------------------------------------------------------------
+document.getElementById('file-input').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      loadData(JSON.parse(reader.result));
+    } catch (err) {
+      alert('Could not parse JSON: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+});
+
+function loadData(json) {
+  data = json;
+  nodesByPath = new Map();
+  childrenByPath = new Map();
+  treeIndex = new Map();
+  selectedRow = null;
+
+  for (const node of data.nodes) nodesByPath.set(node.path, node);
+
+  // Derive parent → children from the set of folder paths.
+  for (const node of data.nodes) {
+    const p = node.path;
+    if (p === '') continue;
+    const parent = parentOf(p);
+    if (!childrenByPath.has(parent)) childrenByPath.set(parent, []);
+    childrenByPath.get(parent).push(p);
+  }
+  for (const list of childrenByPath.values()) {
+    list.sort((a, b) => leaf(a).localeCompare(leaf(b)));
+  }
+
+  // header meta
+  const gen = new Date(data.generatedAt * 1000);
+  document.getElementById('repo-meta').textContent =
+    `${data.repoName || 'repo'} · ${data.totalCommits.toLocaleString()} commits · ` +
+    `generated ${gen.toLocaleDateString()}`;
+
+  // build tree
+  const treeRoot = document.getElementById('tree-root');
+  treeRoot.innerHTML = '';
+  treeRoot.hidden = false;
+  document.getElementById('tree-empty').hidden = true;
+  treeRoot.appendChild(renderTreeNode(''));
+
+  // reset controls
+  currentMetric = 'commits';
+  currentScope = 'all';
+
+  // select & reveal root
+  go('');
+  const rootEntry = treeIndex.get('');
+  if (rootEntry) rootEntry.expand();
+}
+
+// ---- path helpers ---------------------------------------------------------
+function parentOf(p) {
+  const i = p.lastIndexOf('/');
+  return i === -1 ? '' : p.slice(0, i);
+}
+function leaf(p) {
+  const i = p.lastIndexOf('/');
+  return i === -1 ? p : p.slice(i + 1);
+}
+function displayName(p) {
+  if (p === '') return (data && data.repoName) ? data.repoName + '/' : '/';
+  return leaf(p);
+}
+
+// ---- tree rendering (lazy) ------------------------------------------------
+function renderTreeNode(p) {
+  const li = document.createElement('li');
+  const row = document.createElement('div');
+  row.className = 'tree-row';
+
+  const kids = childrenByPath.get(p) || [];
+  const hasKids = kids.length > 0;
+
+  const toggle = document.createElement('span');
+  toggle.className = 'toggle';
+  toggle.textContent = hasKids ? '▶' : '';
+
+  const icon = document.createElement('span');
+  icon.className = 'folder-icon';
+  icon.textContent = '📁';
+
+  const label = document.createElement('span');
+  label.textContent = displayName(p);
+
+  const count = document.createElement('span');
+  const node = nodesByPath.get(p);
+  if (node) count.textContent = ' (' + node.contributors.length + ')';
+  count.className = 'count';
+
+  row.appendChild(toggle);
+  row.appendChild(icon);
+  row.appendChild(label);
+  row.appendChild(count);
+  li.appendChild(row);
+
+  const childUl = document.createElement('ul');
+  childUl.hidden = true;
+  li.appendChild(childUl);
+
+  let built = false;
+  function expand() {
+    if (hasKids) {
+      if (!built) {
+        for (const k of kids) childUl.appendChild(renderTreeNode(k));
+        built = true;
+      }
+      childUl.hidden = false;
+      toggle.textContent = '▼';
+    }
+  }
+  function collapse() {
+    childUl.hidden = true;
+    if (hasKids) toggle.textContent = '▶';
+  }
+
+  toggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (childUl.hidden) expand(); else collapse();
+  });
+  row.addEventListener('click', () => { go(p); expand(); });
+
+  treeIndex.set(p, { row, expand });
+  return li;
+}
+
+function revealPath(target) {
+  const rootEntry = treeIndex.get('');
+  if (rootEntry) rootEntry.expand();
+  if (target !== '') {
+    const segs = target.split('/');
+    let acc = '';
+    for (const s of segs) {
+      acc = acc === '' ? s : acc + '/' + s;
+      const e = treeIndex.get(acc);
+      if (!e) break;
+      e.expand();
+    }
+  }
+  const tgt = treeIndex.get(target);
+  if (tgt) highlightRow(tgt.row);
+}
+
+function highlightRow(row) {
+  if (selectedRow) selectedRow.classList.remove('selected');
+  selectedRow = row;
+  row.classList.add('selected');
+  row.scrollIntoView({ block: 'nearest' });
+}
+
+// ---- navigation -----------------------------------------------------------
+function go(p) {
+  if (!nodesByPath.has(p)) return;
+  currentPath = p;
+  revealPath(p);
+  renderDetails(p);
+}
+
+// ---- metric computation ---------------------------------------------------
+function computeRows(node) {
+  const scope = (currentMetric === 'recency') ? 'all' : currentScope;
+  const rows = node.contributors.map((c) => ({
+    c,
+    commitsVal: scope === 'recent' ? c.commitsRecent : c.commits,
+    linesVal: scope === 'recent' ? c.linesRecent : c.lines,
+    raw: 0,
+    pct: 0,
+  }));
+
+  let sumC = 0, sumL = 0;
+  for (const r of rows) { sumC += r.commitsVal; sumL += r.linesVal; }
+
+  for (const r of rows) {
+    if (currentMetric === 'commits') r.raw = r.commitsVal;
+    else if (currentMetric === 'recency') r.raw = r.c.score;
+    else {
+      const sc = sumC > 0 ? r.commitsVal / sumC : 0;
+      const sl = sumL > 0 ? r.linesVal / sumL : 0;
+      r.raw = W_COMMITS * sc + W_LINES * sl;
+    }
+  }
+
+  let sumRaw = 0;
+  for (const r of rows) sumRaw += r.raw;
+  for (const r of rows) r.pct = sumRaw > 0 ? (r.raw / sumRaw * 100) : 0;
+
+  rows.sort((a, b) => (b.raw - a.raw) || (b.commitsVal - a.commitsVal));
+  return { rows, sumC, sumL, scope };
+}
+
+// ---- detail rendering -----------------------------------------------------
+function renderDetails(p) {
+  document.getElementById('detail-empty').hidden = true;
+  const host = document.getElementById('detail-content');
+  host.hidden = false;
+
+  const node = nodesByPath.get(p);
+  const { rows, sumC, sumL, scope } = computeRows(node);
+  const recentLabel = `Recent (${data.recentDays}d)`;
+
+  host.innerHTML = '';
+  host.appendChild(buildBreadcrumb(p));
+
+  const title = document.createElement('h2');
+  title.className = 'path-title';
+  title.textContent = p === '' ? displayName('') : p;
+  host.appendChild(title);
+
+  host.appendChild(buildControls(recentLabel));
+
+  const summary = document.createElement('div');
+  summary.className = 'summary';
+  const activeRows = rows.filter((r) => r.commitsVal > 0 || currentMetric === 'recency');
+  summary.innerHTML =
+    `<b>${activeRows.length}</b> contributor${activeRows.length === 1 ? '' : 's'} · ` +
+    `<b>${sumC.toLocaleString()}</b> commits · ` +
+    `<b>${sumL.toLocaleString()}</b> lines changed` +
+    (scope === 'recent' ? ` · ${recentLabel}` : '');
+  host.appendChild(summary);
+
+  host.appendChild(buildTable(rows));
+
+  const note = document.createElement('div');
+  note.className = 'note';
+  if (currentMetric === 'combined') {
+    note.textContent = `"Commits + Lines" = ${W_COMMITS} × commit share + ${W_LINES} × line share.`;
+  } else if (currentMetric === 'recency') {
+    note.textContent = `Recency-weighted: each commit decays with a ${data.halfLifeDays}-day half-life (scope toggle disabled).`;
+  } else {
+    note.textContent = 'Commits: a commit is counted once per folder it touched (rolled up over the subtree).';
+  }
+  host.appendChild(note);
+}
+
+function buildBreadcrumb(p) {
+  const bc = document.createElement('div');
+  bc.className = 'breadcrumb';
+  const mk = (label, target) => {
+    const a = document.createElement('a');
+    a.textContent = label;
+    a.addEventListener('click', () => go(target));
+    return a;
+  };
+  bc.appendChild(mk(displayName(''), ''));
+  if (p !== '') {
+    const segs = p.split('/');
+    let acc = '';
+    for (const s of segs) {
+      acc = acc === '' ? s : acc + '/' + s;
+      bc.appendChild(document.createTextNode(' / '));
+      bc.appendChild(mk(s, acc));
+    }
+  }
+  return bc;
+}
+
+function buildControls(recentLabel) {
+  const wrap = document.createElement('div');
+  wrap.className = 'controls';
+
+  const metricGroup = segmented('Metric', [
+    { id: 'commits', label: 'Commits' },
+    { id: 'combined', label: 'Commits + Lines' },
+    { id: 'recency', label: 'Recency-weighted' },
+  ], currentMetric, (id) => { currentMetric = id; renderDetails(currentPath); });
+
+  const scopeButtons = [
+    { id: 'all', label: 'All time' },
+    { id: 'recent', label: recentLabel },
+  ];
+  const scopeGroup = segmented('Time scope', scopeButtons, currentScope,
+    (id) => { currentScope = id; renderDetails(currentPath); },
+    currentMetric === 'recency');
+
+  wrap.appendChild(metricGroup);
+  wrap.appendChild(scopeGroup);
+  return wrap;
+}
+
+function segmented(labelText, buttons, active, onPick, disabled) {
+  const group = document.createElement('div');
+  group.className = 'control-group';
+  const lbl = document.createElement('span');
+  lbl.className = 'lbl';
+  lbl.textContent = labelText;
+  group.appendChild(lbl);
+
+  const seg = document.createElement('div');
+  seg.className = 'segmented';
+  for (const b of buttons) {
+    const btn = document.createElement('button');
+    btn.textContent = b.label;
+    if (b.id === active) btn.classList.add('active');
+    if (disabled) btn.disabled = true;
+    btn.addEventListener('click', () => onPick(b.id));
+    seg.appendChild(btn);
+  }
+  group.appendChild(seg);
+  return group;
+}
+
+function buildTable(rows) {
+  const table = document.createElement('table');
+  table.className = 'contrib';
+  table.innerHTML =
+    '<thead><tr>' +
+    '<th class="num">#</th><th>Contributor</th><th class="bar-cell">Share</th>' +
+    '<th class="num">Commits</th><th class="num">Lines</th><th>Last active</th>' +
+    '</tr></thead>';
+  const tbody = document.createElement('tbody');
+
+  let rank = 0;
+  for (const r of rows) {
+    if (r.commitsVal === 0 && currentMetric !== 'recency') continue;
+    if (currentMetric === 'recency' && r.c.score === 0) continue;
+    rank++;
+    const tr = document.createElement('tr');
+
+    const tdRank = document.createElement('td');
+    tdRank.className = 'rank num';
+    tdRank.textContent = rank;
+
+    const tdWho = document.createElement('td');
+    tdWho.className = 'who';
+    tdWho.innerHTML =
+      `<div class="name"></div><div class="email"></div>`;
+    tdWho.querySelector('.name').textContent = r.c.name || r.c.email || '(unknown)';
+    tdWho.querySelector('.email').textContent = r.c.email || '';
+
+    const tdBar = document.createElement('td');
+    tdBar.className = 'bar-cell';
+    const fillW = Math.max(0, Math.min(100, r.pct)).toFixed(1);
+    tdBar.innerHTML =
+      `<div class="bar-wrap"><div class="bar-track">` +
+      `<div class="bar-fill" style="width:${fillW}%"></div></div>` +
+      `<span class="pct">${r.pct.toFixed(1)}%</span></div>`;
+
+    const tdCommits = document.createElement('td');
+    tdCommits.className = 'num';
+    tdCommits.textContent = r.commitsVal.toLocaleString();
+
+    const tdLines = document.createElement('td');
+    tdLines.className = 'num';
+    tdLines.textContent = r.linesVal.toLocaleString();
+
+    const tdLast = document.createElement('td');
+    tdLast.appendChild(lastActive(r.c.lastTs));
+
+    tr.appendChild(tdRank);
+    tr.appendChild(tdWho);
+    tr.appendChild(tdBar);
+    tr.appendChild(tdCommits);
+    tr.appendChild(tdLines);
+    tr.appendChild(tdLast);
+    tbody.appendChild(tr);
+  }
+
+  table.appendChild(tbody);
+  return table;
+}
+
+function lastActive(ts) {
+  const span = document.createElement('span');
+  if (!ts) { span.textContent = '—'; return span; }
+  const days = Math.floor((data.nowTs - ts) / 86400);
+  let rel;
+  if (days <= 0) rel = 'today';
+  else if (days < 30) rel = days + 'd ago';
+  else if (days < 365) rel = Math.floor(days / 30) + 'mo ago';
+  else rel = (Math.floor(days / 365 * 10) / 10) + 'y ago';
+  const d = new Date(ts * 1000);
+  span.textContent = rel;
+  span.title = d.toLocaleDateString();
+  if (days > 365) span.className = 'stale';
+  return span;
+}
+</script>
+</body>
+</html>

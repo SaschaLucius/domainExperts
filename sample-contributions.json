@@ -1,0 +1,48 @@
+{
+  "generatedAt": 1782345600,
+  "nowTs": 1782345600,
+  "recentDays": 365,
+  "halfLifeDays": 365,
+  "repoName": "example-repo",
+  "totalCommits": 110,
+  "nodes": [
+    {
+      "path": "",
+      "contributors": [
+        { "name": "Alice Andersson", "email": "alice@example.com", "commits": 50, "commitsRecent": 18, "lines": 8000, "linesRecent": 2600, "lastTs": 1778889600, "score": 33.0 },
+        { "name": "Bob Bauer", "email": "bob@example.com", "commits": 30, "commitsRecent": 0, "lines": 4000, "linesRecent": 0, "lastTs": 1739145600, "score": 9.5 },
+        { "name": "Carol Chen", "email": "carol@example.com", "commits": 22, "commitsRecent": 15, "lines": 5000, "linesRecent": 3500, "lastTs": 1780358400, "score": 18.0 },
+        { "name": "Dave Duarte", "email": "dave@example.com", "commits": 8, "commitsRecent": 0, "lines": 900, "linesRecent": 0, "lastTs": 1730419200, "score": 1.2 }
+      ]
+    },
+    {
+      "path": "src",
+      "contributors": [
+        { "name": "Alice Andersson", "email": "alice@example.com", "commits": 40, "commitsRecent": 16, "lines": 7000, "linesRecent": 2400, "lastTs": 1778889600, "score": 28.5 },
+        { "name": "Bob Bauer", "email": "bob@example.com", "commits": 18, "commitsRecent": 0, "lines": 2600, "linesRecent": 0, "lastTs": 1739145600, "score": 6.0 },
+        { "name": "Carol Chen", "email": "carol@example.com", "commits": 20, "commitsRecent": 14, "lines": 4600, "linesRecent": 3300, "lastTs": 1780358400, "score": 16.5 }
+      ]
+    },
+    {
+      "path": "src/api",
+      "contributors": [
+        { "name": "Carol Chen", "email": "carol@example.com", "commits": 18, "commitsRecent": 13, "lines": 4200, "linesRecent": 3100, "lastTs": 1780358400, "score": 15.0 },
+        { "name": "Alice Andersson", "email": "alice@example.com", "commits": 9, "commitsRecent": 3, "lines": 1500, "linesRecent": 500, "lastTs": 1776297600, "score": 5.5 }
+      ]
+    },
+    {
+      "path": "src/ui",
+      "contributors": [
+        { "name": "Alice Andersson", "email": "alice@example.com", "commits": 31, "commitsRecent": 13, "lines": 5500, "linesRecent": 1900, "lastTs": 1778889600, "score": 23.0 },
+        { "name": "Bob Bauer", "email": "bob@example.com", "commits": 18, "commitsRecent": 0, "lines": 2600, "linesRecent": 0, "lastTs": 1739145600, "score": 6.0 }
+      ]
+    },
+    {
+      "path": "docs",
+      "contributors": [
+        { "name": "Dave Duarte", "email": "dave@example.com", "commits": 8, "commitsRecent": 0, "lines": 900, "linesRecent": 0, "lastTs": 1730419200, "score": 1.2 },
+        { "name": "Carol Chen", "email": "carol@example.com", "commits": 4, "commitsRecent": 2, "lines": 600, "linesRecent": 300, "lastTs": 1779667200, "score": 2.4 }
+      ]
+    }
+  ]
+}
