@@ -487,6 +487,12 @@
         let currentScope = 'all';        // 'all' | 'recent'
         let currentSortCol = 'share';    // 'contributor' | 'share' | 'commits' | 'lines' | 'lastactive'
         let currentSortDir = 'desc';     // 'asc' | 'desc'
+        let coverageSortCol = 'coverage';  // 'expert' | 'coverage'
+        let coverageSortDir = 'desc';      // 'asc' | 'desc'
+        let subfolderSortCol = 'share';    // 'subfolder' | 'expert' | 'share'
+        let subfolderSortDir = 'desc';     // 'asc' | 'desc'
+        let exclusionsSortCol = 'commits'; // 'contributor' | 'commits' | 'lines' | 'lastactive'
+        let exclusionsSortDir = 'desc';    // 'asc' | 'desc'
         let selectedRow = null;
         let currentTab = 'contributors'; // 'contributors' | 'domains' | 'pinned'
         let pinnedPaths = new Set();
@@ -517,6 +523,12 @@
             excludedDevs = new Set();
             currentSortCol = 'share';
             currentSortDir = 'desc';
+            coverageSortCol = 'coverage';
+            coverageSortDir = 'desc';
+            subfolderSortCol = 'share';
+            subfolderSortDir = 'desc';
+            exclusionsSortCol = 'commits';
+            exclusionsSortDir = 'desc';
             currentTab = 'contributors';
 
             for (const node of data.nodes) nodesByPath.set(node.path, node);
@@ -1115,6 +1127,13 @@
         }
 
         function buildCoverageTable(expertList, total) {
+            const dir = coverageSortDir === 'asc' ? 1 : -1;
+            const sorted = [...expertList].sort((a, b) => {
+                if (coverageSortCol === 'expert')
+                    return dir * ((a.c.name || a.c.email || '').localeCompare(b.c.name || b.c.email || ''));
+                return dir * (a.paths.length - b.paths.length); // 'coverage'
+            });
+
             const table = document.createElement('table');
             table.className = 'contrib';
             table.style.tableLayout = 'fixed';
@@ -1129,19 +1148,31 @@
 
             const thead = document.createElement('thead');
             const hdrRow = document.createElement('tr');
-            for (const [lbl, cls] of [
-                ['#', 'num'], ['Expert', ''], ['Coverage', 'bar-cell'], ['Subfolders', ''],
+            for (const { id, label, cls } of [
+                { id: null, label: '#', cls: 'num' },
+                { id: 'expert', label: 'Expert', cls: '' },
+                { id: 'coverage', label: 'Coverage', cls: 'bar-cell' },
+                { id: null, label: 'Subfolders', cls: '' },
             ]) {
                 const th = document.createElement('th');
-                th.textContent = lbl;
+                th.textContent = label;
                 if (cls) th.className = cls;
+                if (id) {
+                    th.classList.add('sortable');
+                    if (id === coverageSortCol) th.classList.add(coverageSortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+                    th.addEventListener('click', () => {
+                        if (coverageSortCol === id) coverageSortDir = coverageSortDir === 'desc' ? 'asc' : 'desc';
+                        else { coverageSortCol = id; coverageSortDir = id === 'expert' ? 'asc' : 'desc'; }
+                        renderDetails(currentPath);
+                    });
+                }
                 hdrRow.appendChild(th);
             }
             thead.appendChild(hdrRow);
             table.appendChild(thead);
 
             const tbody = document.createElement('tbody');
-            expertList.forEach((e, i) => {
+            sorted.forEach((e, i) => {
                 const pct = (e.paths.length / total) * 100;
                 const tr = document.createElement('tr');
 
@@ -1192,7 +1223,15 @@
                 : 'No developers excluded. Toggle contributors below to remove them from all calculations.';
             host.appendChild(summary);
 
-            const allContribs = [...rootNode.contributors].sort((a, b) => b.commits - a.commits);
+            const exDir = exclusionsSortDir === 'asc' ? 1 : -1;
+            const allContribs = [...rootNode.contributors].sort((a, b) => {
+                switch (exclusionsSortCol) {
+                    case 'contributor': return exDir * ((a.name || a.email || '').localeCompare(b.name || b.email || ''));
+                    case 'lines': return exDir * (a.lines - b.lines);
+                    case 'lastactive': return exDir * ((a.lastTs || 0) - (b.lastTs || 0));
+                    default: return exDir * (a.commits - b.commits); // 'commits'
+                }
+            });
 
             const allKeys = allContribs.map(devKey);
             const allExcluded = allKeys.every(k => excludedDevs.has(k));
@@ -1211,12 +1250,22 @@
 
             const thead = document.createElement('thead');
             const hdrRow = document.createElement('tr');
-            for (const [lbl, cls] of [
-                ['Contributor', ''], ['Commits', 'num'], ['Lines', 'num'], ['Last Active', ''],
+            for (const { id, label, cls } of [
+                { id: 'contributor', label: 'Contributor', cls: '' },
+                { id: 'commits', label: 'Commits', cls: 'num' },
+                { id: 'lines', label: 'Lines', cls: 'num' },
+                { id: 'lastactive', label: 'Last Active', cls: '' },
             ]) {
                 const th = document.createElement('th');
-                th.textContent = lbl;
+                th.textContent = label;
                 if (cls) th.className = cls;
+                th.classList.add('sortable');
+                if (id === exclusionsSortCol) th.classList.add(exclusionsSortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+                th.addEventListener('click', () => {
+                    if (exclusionsSortCol === id) exclusionsSortDir = exclusionsSortDir === 'desc' ? 'asc' : 'desc';
+                    else { exclusionsSortCol = id; exclusionsSortDir = id === 'contributor' ? 'asc' : 'desc'; }
+                    renderDetails(currentPath);
+                });
                 hdrRow.appendChild(th);
             }
             thead.appendChild(hdrRow);
@@ -1270,6 +1319,21 @@
         }
 
         function buildSubfolderTable(sfExperts, useFull = false) {
+            const dir = subfolderSortDir === 'asc' ? 1 : -1;
+            const sorted = [...sfExperts].sort((a, b) => {
+                if (subfolderSortCol === 'subfolder') {
+                    const na = useFull ? a.path : leaf(a.path);
+                    const nb = useFull ? b.path : leaf(b.path);
+                    return dir * na.localeCompare(nb);
+                }
+                if (subfolderSortCol === 'expert') {
+                    const na = a.contributor ? (a.contributor.name || a.contributor.email || '') : '';
+                    const nb = b.contributor ? (b.contributor.name || b.contributor.email || '') : '';
+                    return dir * na.localeCompare(nb);
+                }
+                return dir * ((a.pct || 0) - (b.pct || 0)); // 'share'
+            });
+
             const table = document.createElement('table');
             table.className = 'contrib';
             table.style.tableLayout = 'fixed';
@@ -1284,19 +1348,28 @@
 
             const thead = document.createElement('thead');
             const hdrRow = document.createElement('tr');
-            for (const [lbl, cls] of [
-                ['Subfolder', ''], ['Expert', ''], ['Share in folder', 'num'],
+            for (const { id, label, cls } of [
+                { id: 'subfolder', label: 'Subfolder', cls: '' },
+                { id: 'expert', label: 'Expert', cls: '' },
+                { id: 'share', label: 'Share in folder', cls: 'num' },
             ]) {
                 const th = document.createElement('th');
-                th.textContent = lbl;
+                th.textContent = label;
                 if (cls) th.className = cls;
+                th.classList.add('sortable');
+                if (id === subfolderSortCol) th.classList.add(subfolderSortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+                th.addEventListener('click', () => {
+                    if (subfolderSortCol === id) subfolderSortDir = subfolderSortDir === 'desc' ? 'asc' : 'desc';
+                    else { subfolderSortCol = id; subfolderSortDir = id === 'subfolder' || id === 'expert' ? 'asc' : 'desc'; }
+                    renderDetails(currentPath);
+                });
                 hdrRow.appendChild(th);
             }
             thead.appendChild(hdrRow);
             table.appendChild(thead);
 
             const tbody = document.createElement('tbody');
-            for (const sf of sfExperts) {
+            for (const sf of sorted) {
                 const tr = document.createElement('tr');
 
                 const tdP = document.createElement('td');
