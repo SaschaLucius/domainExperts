@@ -539,6 +539,9 @@
         let pinnedPaths = new Set();
         let excludedDevs = new Set();
         let mergedAccounts = new Map();  // childDevKey -> parentDevKey
+        let peopleSortCol = 'commits';    // 'contributor' | 'commits' | 'lines' | 'lastactive'
+        let peopleSortDir = 'desc';
+        let currentPersonKey = null;      // null = list view; string = person detail view
 
         // ---- exclusion persistence -----------------------------------------------
         function storageKey() {
@@ -605,6 +608,9 @@
             exclusionsSortCol = 'commits';
             exclusionsSortDir = 'desc';
             currentTab = 'contributors';
+            peopleSortCol = 'commits';
+            peopleSortDir = 'desc';
+            currentPersonKey = null;
 
             for (const node of data.nodes) nodesByPath.set(node.path, node);
 
@@ -858,7 +864,7 @@
                 title.className = 'path-title';
                 title.textContent = 'Pinned Folders';
                 host.appendChild(title);
-            } else {
+            } else if (currentTab !== 'people') {
                 host.appendChild(buildBreadcrumb(p));
                 const title = document.createElement('h2');
                 title.className = 'path-title';
@@ -901,6 +907,8 @@
                 renderPinnedTab(host, recentLabel);
             } else if (currentTab === 'exclusions') {
                 renderExclusionsTab(host);
+            } else if (currentTab === 'people') {
+                renderPeopleTab(host);
             }
         }
 
@@ -1114,12 +1122,17 @@
                 { id: 'domains', label: 'Domain Map' },
                 { id: 'pinned', label: pinnedLabel },
                 { id: 'exclusions', label: excludedLabel },
+                { id: 'people', label: 'People' },
             ]) {
                 const btn = document.createElement('button');
                 btn.textContent = t.label;
                 if (t.id === currentTab) btn.classList.add('active');
                 btn.addEventListener('click', () => {
-                    if (currentTab !== t.id) { currentTab = t.id; renderDetails(currentPath); }
+                    if (currentTab !== t.id) {
+                        if (currentTab !== 'people') currentPersonKey = null;
+                        currentTab = t.id;
+                        renderDetails(currentPath);
+                    }
                 });
                 bar.appendChild(btn);
             }
@@ -1583,6 +1596,277 @@
             }
             table.appendChild(tbody);
             return table;
+        }
+
+        // ---- tab 5: people (reverse lookup) --------------------------------------
+        function renderPeopleTab(host) {
+            if (currentPersonKey !== null) {
+                renderPersonDetail(host, currentPersonKey);
+                return;
+            }
+
+            const rootNode = nodesByPath.get('');
+            if (!rootNode) {
+                const msg = document.createElement('div');
+                msg.className = 'empty';
+                msg.style.height = '160px';
+                msg.textContent = 'No data loaded.';
+                host.appendChild(msg);
+                return;
+            }
+
+            const title = document.createElement('h2');
+            title.className = 'path-title';
+            title.textContent = 'People';
+            host.appendChild(title);
+
+            const recentLabel = `Recent (${data.recentDays}d)`;
+            host.appendChild(buildControls(recentLabel));
+
+            const { rows } = computeRows(rootNode);
+            const active = rows.filter(r => r.commitsVal > 0 || r.c.score > 0);
+
+            const dir = peopleSortDir === 'asc' ? 1 : -1;
+            active.sort((a, b) => {
+                switch (peopleSortCol) {
+                    case 'contributor': return dir * ((a.c.name || a.c.email || '').localeCompare(b.c.name || b.c.email || ''));
+                    case 'lines': return dir * (a.linesVal - b.linesVal);
+                    case 'lastactive': {
+                        if (!a.c.lastTs && b.c.lastTs) return 1;
+                        if (a.c.lastTs && !b.c.lastTs) return -1;
+                        return dir * ((a.c.lastTs || 0) - (b.c.lastTs || 0));
+                    }
+                    default: return dir * (a.commitsVal - b.commitsVal);
+                }
+            });
+
+            const summary = document.createElement('div');
+            summary.className = 'summary';
+            summary.innerHTML = `<b>${active.length}</b> contributor${active.length === 1 ? '' : 's'} · click a row to see their domain expertise`;
+            host.appendChild(summary);
+
+            const table = document.createElement('table');
+            table.className = 'contrib';
+            table.style.tableLayout = 'fixed';
+
+            const colg = document.createElement('colgroup');
+            for (const w of ['', '90px', '90px', '108px', '90px']) {
+                const col = document.createElement('col');
+                if (w) col.style.width = w;
+                colg.appendChild(col);
+            }
+            table.appendChild(colg);
+
+            const thead = document.createElement('thead');
+            const hdrRow = document.createElement('tr');
+            for (const { id, label, cls } of [
+                { id: 'contributor', label: 'Contributor', cls: '' },
+                { id: 'commits', label: 'Commits', cls: 'num' },
+                { id: 'lines', label: 'Lines', cls: 'num' },
+                { id: 'lastactive', label: 'Last Active', cls: '' },
+                { id: null, label: '', cls: '' },
+            ]) {
+                const th = document.createElement('th');
+                th.textContent = label;
+                if (cls) th.className = cls;
+                if (id) {
+                    th.classList.add('sortable');
+                    if (id === peopleSortCol) th.classList.add(peopleSortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+                    th.addEventListener('click', () => {
+                        if (peopleSortCol === id) peopleSortDir = peopleSortDir === 'desc' ? 'asc' : 'desc';
+                        else { peopleSortCol = id; peopleSortDir = id === 'contributor' ? 'asc' : 'desc'; }
+                        renderDetails(currentPath);
+                    });
+                }
+                hdrRow.appendChild(th);
+            }
+            thead.appendChild(hdrRow);
+            table.appendChild(thead);
+
+            const tbody = document.createElement('tbody');
+            for (const r of active) {
+                const key = devKey(r.c);
+                const tr = document.createElement('tr');
+                tr.style.cursor = 'pointer';
+                tr.addEventListener('click', () => { currentPersonKey = key; renderDetails(currentPath); });
+                tr.addEventListener('mouseenter', () => { tr.style.background = 'var(--hover)'; });
+                tr.addEventListener('mouseleave', () => { tr.style.background = ''; });
+
+                const tdW = document.createElement('td');
+                tdW.className = 'who';
+                tdW.innerHTML = '<div class="name"></div><div class="email"></div>';
+                tdW.querySelector('.name').textContent = r.c.name || r.c.email || '(unknown)';
+                tdW.querySelector('.email').textContent = r.c.email || '';
+
+                const tdC = document.createElement('td');
+                tdC.className = 'num';
+                tdC.textContent = r.commitsVal.toLocaleString();
+
+                const tdL = document.createElement('td');
+                tdL.className = 'num';
+                tdL.textContent = r.linesVal.toLocaleString();
+
+                const tdLast = document.createElement('td');
+                tdLast.appendChild(lastActive(r.c.lastTs));
+
+                const tdLink = document.createElement('td');
+                tdLink.style.cssText = 'text-align:right;';
+                const arrow = document.createElement('span');
+                arrow.textContent = 'Domains \u2192';
+                arrow.style.cssText = 'font-size:12px;color:var(--accent);';
+                tdLink.appendChild(arrow);
+
+                tr.append(tdW, tdC, tdL, tdLast, tdLink);
+                tbody.appendChild(tr);
+            }
+            table.appendChild(tbody);
+            host.appendChild(table);
+        }
+
+        function renderPersonDetail(host, personKey) {
+            const rootNode = nodesByPath.get('');
+            if (!rootNode) return;
+
+            // Resolve display identity (may be a merged account with extra data)
+            const { rows: rootRows } = computeRows(rootNode);
+            const personRow = rootRows.find(r => devKey(r.c) === personKey);
+            const personC = personRow ? personRow.c : rootNode.contributors.find(c => devKey(c) === personKey);
+
+            const backBtn = document.createElement('button');
+            backBtn.textContent = '\u2190 All people';
+            backBtn.style.cssText = 'background:none;border:none;color:var(--accent);font-size:13px;cursor:pointer;padding:0;margin-bottom:8px;';
+            backBtn.addEventListener('click', () => { currentPersonKey = null; renderDetails(currentPath); });
+            host.appendChild(backBtn);
+
+            const title = document.createElement('h2');
+            title.className = 'path-title';
+            title.textContent = personC ? (personC.name || personC.email || personKey) : personKey;
+            host.appendChild(title);
+
+            if (personC && personC.name && personC.email) {
+                const sub = document.createElement('div');
+                sub.style.cssText = 'font-size:13px;color:var(--muted);margin:-8px 0 14px;';
+                sub.textContent = personC.email;
+                host.appendChild(sub);
+            }
+
+            const recentLabel = `Recent (${data.recentDays}d)`;
+            host.appendChild(buildControls(recentLabel));
+
+            // Find all folders where this person has activity
+            const domains = [];
+            for (const [p, node] of nodesByPath) {
+                const { rows } = computeRows(node);
+                const active = rows.filter(r => currentMetric === 'recency' ? r.c.score > 0 : r.commitsVal > 0);
+                const idx = active.findIndex(r => devKey(r.c) === personKey);
+                if (idx === -1) continue;
+                const r = active[idx];
+                domains.push({ path: p, rank: idx + 1, total: active.length, pct: r.pct,
+                    commitsVal: r.commitsVal, linesVal: r.linesVal, lastTs: r.c.lastTs });
+            }
+            domains.sort((a, b) => a.rank - b.rank || b.pct - a.pct || a.path.localeCompare(b.path));
+
+            const topCount = domains.filter(d => d.rank === 1).length;
+
+            const summary = document.createElement('div');
+            summary.className = 'summary';
+            summary.innerHTML = `Top expert in <b>${topCount}</b> folder${topCount === 1 ? '' : 's'} · ` +
+                `active in <b>${domains.length}</b> folder${domains.length === 1 ? '' : 's'} total`;
+            host.appendChild(summary);
+
+            if (domains.length === 0) {
+                const msg = document.createElement('div');
+                msg.style.cssText = 'color:var(--muted);font-size:13px;';
+                msg.textContent = 'No activity visible in the current scope/metric.';
+                host.appendChild(msg);
+                return;
+            }
+
+            const table = document.createElement('table');
+            table.className = 'contrib';
+            table.style.tableLayout = 'fixed';
+
+            const colg = document.createElement('colgroup');
+            for (const w of ['', '52px', '36%', '90px', '90px', '108px']) {
+                const col = document.createElement('col');
+                if (w) col.style.width = w;
+                colg.appendChild(col);
+            }
+            table.appendChild(colg);
+
+            const thead = document.createElement('thead');
+            const hdrRow = document.createElement('tr');
+            for (const { label, cls } of [
+                { label: 'Folder', cls: '' },
+                { label: 'Rank', cls: 'num' },
+                { label: 'Share', cls: 'bar-cell' },
+                { label: 'Commits', cls: 'num' },
+                { label: 'Lines', cls: 'num' },
+                { label: 'Last active', cls: '' },
+            ]) {
+                const th = document.createElement('th');
+                th.textContent = label;
+                if (cls) th.className = cls;
+                hdrRow.appendChild(th);
+            }
+            thead.appendChild(hdrRow);
+            table.appendChild(thead);
+
+            const tbody = document.createElement('tbody');
+            for (const d of domains) {
+                const tr = document.createElement('tr');
+
+                const tdP = document.createElement('td');
+                tdP.style.overflow = 'hidden';
+                const a = document.createElement('a');
+                a.style.cssText = 'color:var(--accent);cursor:pointer;font-size:13px;font-weight:500;white-space:nowrap;';
+                a.textContent = d.path === '' ? displayName('') : d.path;
+                a.title = d.path === '' ? displayName('') : d.path;
+                a.addEventListener('click', () => { currentPersonKey = null; currentTab = 'contributors'; go(d.path); });
+                a.addEventListener('mouseenter', () => { a.style.textDecoration = 'underline'; });
+                a.addEventListener('mouseleave', () => { a.style.textDecoration = ''; });
+                tdP.appendChild(a);
+
+                const tdRank = document.createElement('td');
+                tdRank.className = 'num';
+                if (d.rank === 1) {
+                    tdRank.innerHTML = '<b style="color:var(--accent)">#1</b>';
+                } else {
+                    const span = document.createElement('span');
+                    span.style.color = 'var(--muted)';
+                    span.textContent = '#' + d.rank;
+                    tdRank.appendChild(span);
+                }
+
+                const tdBar = document.createElement('td');
+                tdBar.className = 'bar-cell';
+                const fillW = Math.max(0, Math.min(100, d.pct)).toFixed(1);
+                tdBar.innerHTML =
+                    `<div class="bar-wrap"><div class="bar-track">` +
+                    `<div class="bar-fill" style="width:${fillW}%"></div></div>` +
+                    `<span class="pct">${d.pct.toFixed(1)}%</span></div>`;
+
+                const tdC = document.createElement('td');
+                tdC.className = 'num';
+                tdC.textContent = d.commitsVal.toLocaleString();
+
+                const tdL = document.createElement('td');
+                tdL.className = 'num';
+                tdL.textContent = d.linesVal.toLocaleString();
+
+                const tdLast = document.createElement('td');
+                tdLast.appendChild(lastActive(d.lastTs));
+
+                tr.append(tdP, tdRank, tdBar, tdC, tdL, tdLast);
+                tbody.appendChild(tr);
+            }
+            table.appendChild(tbody);
+            host.appendChild(table);
+
+            const note = document.createElement('div');
+            note.className = 'note';
+            note.textContent = 'Clicking a folder navigates to it in the Contributors tab.';
+            host.appendChild(note);
         }
 
         // ---- tree search ---------------------------------------------------------
