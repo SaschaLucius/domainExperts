@@ -498,6 +498,23 @@
         let pinnedPaths = new Set();
         let excludedDevs = new Set();
 
+        // ---- exclusion persistence -----------------------------------------------
+        function storageKey() {
+            return 'domainExperts:excl:' + (data && data.repoName ? data.repoName : '__default__');
+        }
+        function saveExclusions() {
+            try { localStorage.setItem(storageKey(), JSON.stringify([...excludedDevs])); } catch (e) { /* quota / private browsing */ }
+        }
+        function loadExclusions() {
+            try {
+                const raw = localStorage.getItem(storageKey());
+                if (raw) {
+                    const keys = JSON.parse(raw);
+                    if (Array.isArray(keys)) keys.forEach(k => excludedDevs.add(k));
+                }
+            } catch (e) { /* ignore */ }
+        }
+
         // ---- loading --------------------------------------------------------------
         document.getElementById('file-input').addEventListener('change', (e) => {
             const file = e.target.files[0];
@@ -561,6 +578,9 @@
             // reset controls
             currentMetric = 'commits';
             currentScope = 'all';
+
+            // restore saved exclusions for this repo
+            loadExclusions();
 
             // select & reveal root
             go('');
@@ -1241,6 +1261,7 @@
             bulkBtn.addEventListener('click', () => {
                 if (allExcluded) allKeys.forEach(k => excludedDevs.delete(k));
                 else allKeys.forEach(k => excludedDevs.add(k));
+                saveExclusions();
                 renderDetails(currentPath);
             });
             host.appendChild(bulkBtn);
@@ -1286,6 +1307,7 @@
                 btn.addEventListener('click', () => {
                     if (excludedDevs.has(key)) excludedDevs.delete(key);
                     else excludedDevs.add(key);
+                    saveExclusions();
                     renderDetails(currentPath);
                 });
                 const nameWrap = document.createElement('span');
