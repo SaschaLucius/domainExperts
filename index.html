@@ -497,6 +497,7 @@
         let currentTab = 'contributors'; // 'contributors' | 'domains' | 'pinned'
         let pinnedPaths = new Set();
         let excludedDevs = new Set();
+        let mergedAccounts = new Map();  // childDevKey -> parentDevKey
 
         // ---- exclusion persistence -----------------------------------------------
         function storageKey() {
@@ -513,6 +514,21 @@
                     if (Array.isArray(keys)) keys.forEach(k => excludedDevs.add(k));
                 }
             } catch (e) { /* ignore */ }
+        }
+        function storageKeyMerges() {
+            return 'domainExperts:merges:' + (data && data.repoName ? data.repoName : '__default__');
+        }
+        function saveMerges() {
+            try { localStorage.setItem(storageKeyMerges(), JSON.stringify([...mergedAccounts])); } catch (e) {}
+        }
+        function loadMerges() {
+            try {
+                const raw = localStorage.getItem(storageKeyMerges());
+                if (raw) {
+                    const entries = JSON.parse(raw);
+                    if (Array.isArray(entries)) entries.forEach(([k, v]) => mergedAccounts.set(k, v));
+                }
+            } catch (e) {}
         }
 
         // ---- loading --------------------------------------------------------------
@@ -538,6 +554,7 @@
             selectedRow = null;
             pinnedPaths = new Set();
             excludedDevs = new Set();
+            mergedAccounts = new Map();
             currentSortCol = 'share';
             currentSortDir = 'desc';
             coverageSortCol = 'coverage';
@@ -581,6 +598,7 @@
 
             // restore saved exclusions for this repo
             loadExclusions();
+            loadMerges();
 
             // select & reveal root
             go('');
@@ -717,15 +735,45 @@
 
         function computeRows(node) {
             const scope = (currentMetric === 'recency') ? 'all' : currentScope;
+
+            // Accumulate stats from alias accounts into their parent
+            const extras = new Map();
+            for (const c of node.contributors) {
+                const key = devKey(c);
+                const parentKey = mergedAccounts.get(key);
+                if (!parentKey || excludedDevs.has(parentKey)) continue;
+                if (!extras.has(parentKey)) extras.set(parentKey, { commits: 0, lines: 0, commitsRecent: 0, linesRecent: 0, score: 0, lastTs: 0 });
+                const ex = extras.get(parentKey);
+                ex.commits += c.commits || 0;
+                ex.lines += c.lines || 0;
+                ex.commitsRecent += c.commitsRecent || 0;
+                ex.linesRecent += c.linesRecent || 0;
+                ex.score += c.score || 0;
+                if (c.lastTs) ex.lastTs = Math.max(ex.lastTs, c.lastTs);
+            }
+
             const rows = node.contributors
-                .filter(c => !excludedDevs.has(devKey(c)))
-                .map((c) => ({
-                    c,
-                    commitsVal: scope === 'recent' ? c.commitsRecent : c.commits,
-                    linesVal: scope === 'recent' ? c.linesRecent : c.lines,
-                    raw: 0,
-                    pct: 0,
-                }));
+                .filter(c => !excludedDevs.has(devKey(c)) && !mergedAccounts.has(devKey(c)))
+                .map((c) => {
+                    const key = devKey(c);
+                    const ex = extras.get(key);
+                    const ec = ex ? {
+                        ...c,
+                        commits: (c.commits || 0) + ex.commits,
+                        lines: (c.lines || 0) + ex.lines,
+                        commitsRecent: (c.commitsRecent || 0) + ex.commitsRecent,
+                        linesRecent: (c.linesRecent || 0) + ex.linesRecent,
+                        score: (c.score || 0) + ex.score,
+                        lastTs: ex.lastTs > (c.lastTs || 0) ? ex.lastTs : c.lastTs,
+                    } : c;
+                    return {
+                        c: ec,
+                        commitsVal: scope === 'recent' ? ec.commitsRecent : ec.commits,
+                        linesVal: scope === 'recent' ? ec.linesRecent : ec.lines,
+                        raw: 0,
+                        pct: 0,
+                    };
+                });
 
             let sumC = 0, sumL = 0;
             for (const r of rows) { sumC += r.commitsVal; sumL += r.linesVal; }
@@ -1013,7 +1061,8 @@
             const bar = document.createElement('div');
             bar.className = 'tab-bar';
             const pinnedLabel = pinnedPaths.size > 0 ? `Pinned (${pinnedPaths.size})` : 'Pinned';
-            const excludedLabel = excludedDevs.size > 0 ? `Exclusions (${excludedDevs.size})` : 'Exclusions';
+            const totalManaged = excludedDevs.size + mergedAccounts.size;
+            const excludedLabel = totalManaged > 0 ? `Exclusions (${totalManaged})` : 'Exclusions';
             for (const t of [
                 { id: 'contributors', label: 'Contributors' },
                 { id: 'domains', label: 'Domain Map' },
@@ -1238,9 +1287,12 @@
 
             const summary = document.createElement('div');
             summary.className = 'summary';
-            summary.innerHTML = excludedDevs.size > 0
-                ? `<b>${excludedDevs.size}</b> developer${excludedDevs.size === 1 ? '' : 's'} excluded from all metrics`
-                : 'No developers excluded. Toggle contributors below to remove them from all calculations.';
+            const summaryParts = [];
+            if (excludedDevs.size > 0) summaryParts.push(`<b>${excludedDevs.size}</b> developer${excludedDevs.size === 1 ? '' : 's'} excluded`);
+            if (mergedAccounts.size > 0) summaryParts.push(`<b>${mergedAccounts.size}</b> account${mergedAccounts.size === 1 ? '' : 's'} merged as aliases`);
+            summary.innerHTML = summaryParts.length > 0
+                ? summaryParts.join(' · ')
+                : 'No developers excluded. Use Exclude buttons or the "Merge into" dropdown to manage contributors.';
             host.appendChild(summary);
 
             const exDir = exclusionsSortDir === 'asc' ? 1 : -1;
@@ -1253,7 +1305,7 @@
                 }
             });
 
-            const allKeys = allContribs.map(devKey);
+            const allKeys = allContribs.filter(c => !mergedAccounts.has(devKey(c))).map(devKey);
             const allExcluded = allKeys.every(k => excludedDevs.has(k));
             const bulkBtn = document.createElement('button');
             bulkBtn.textContent = allExcluded ? 'Include All' : 'Exclude All';
@@ -1276,40 +1328,51 @@
                 { id: 'commits', label: 'Commits', cls: 'num' },
                 { id: 'lines', label: 'Lines', cls: 'num' },
                 { id: 'lastactive', label: 'Last Active', cls: '' },
+                { id: null, label: 'Merge into', cls: '' },
             ]) {
                 const th = document.createElement('th');
                 th.textContent = label;
                 if (cls) th.className = cls;
-                th.classList.add('sortable');
-                if (id === exclusionsSortCol) th.classList.add(exclusionsSortDir === 'asc' ? 'sort-asc' : 'sort-desc');
-                th.addEventListener('click', () => {
-                    if (exclusionsSortCol === id) exclusionsSortDir = exclusionsSortDir === 'desc' ? 'asc' : 'desc';
-                    else { exclusionsSortCol = id; exclusionsSortDir = id === 'contributor' ? 'asc' : 'desc'; }
-                    renderDetails(currentPath);
-                });
+                if (id) {
+                    th.classList.add('sortable');
+                    if (id === exclusionsSortCol) th.classList.add(exclusionsSortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+                    th.addEventListener('click', () => {
+                        if (exclusionsSortCol === id) exclusionsSortDir = exclusionsSortDir === 'desc' ? 'asc' : 'desc';
+                        else { exclusionsSortCol = id; exclusionsSortDir = id === 'contributor' ? 'asc' : 'desc'; }
+                        renderDetails(currentPath);
+                    });
+                }
                 hdrRow.appendChild(th);
             }
             thead.appendChild(hdrRow);
             table.appendChild(thead);
 
             const tbody = document.createElement('tbody');
+            const parentKeys = new Set(mergedAccounts.values());
             for (const c of allContribs) {
                 const key = devKey(c);
                 const excluded = excludedDevs.has(key);
+                const merged = mergedAccounts.has(key);
+                const isParentDev = parentKeys.has(key);
+                const parentKey = mergedAccounts.get(key) || '';
                 const tr = document.createElement('tr');
                 if (excluded) tr.style.opacity = '0.45';
+                else if (merged) tr.style.cssText = 'opacity:0.6;background:var(--selected);';
 
                 const tdW = document.createElement('td');
                 tdW.style.cssText = 'white-space:nowrap;';
-                const btn = document.createElement('button');
-                btn.textContent = excluded ? 'Include' : 'Exclude';
-                btn.style.cssText = `font-size:11px;padding:2px 8px;border-radius:6px;border:1px solid var(--border);cursor:pointer;margin-right:10px;vertical-align:middle;background:${excluded ? '#fff' : '#fee2e2'};color:${excluded ? 'var(--text)' : '#b91c1c'};`;
-                btn.addEventListener('click', () => {
-                    if (excludedDevs.has(key)) excludedDevs.delete(key);
-                    else excludedDevs.add(key);
-                    saveExclusions();
-                    renderDetails(currentPath);
-                });
+                if (!merged) {
+                    const btn = document.createElement('button');
+                    btn.textContent = excluded ? 'Include' : 'Exclude';
+                    btn.style.cssText = `font-size:11px;padding:2px 8px;border-radius:6px;border:1px solid var(--border);cursor:pointer;margin-right:10px;vertical-align:middle;background:${excluded ? '#fff' : '#fee2e2'};color:${excluded ? 'var(--text)' : '#b91c1c'};`;
+                    btn.addEventListener('click', () => {
+                        if (excludedDevs.has(key)) excludedDevs.delete(key);
+                        else excludedDevs.add(key);
+                        saveExclusions();
+                        renderDetails(currentPath);
+                    });
+                    tdW.appendChild(btn);
+                }
                 const nameWrap = document.createElement('span');
                 nameWrap.className = 'who';
                 nameWrap.style.cssText = 'display:inline-flex;flex-direction:column;vertical-align:middle;';
@@ -1320,7 +1383,7 @@
                 emailEl.className = 'email';
                 emailEl.textContent = c.email || '';
                 nameWrap.append(nameEl, emailEl);
-                tdW.append(btn, nameWrap);
+                tdW.append(nameWrap);
 
                 const tdC = document.createElement('td');
                 tdC.className = 'num';
@@ -1333,7 +1396,58 @@
                 const tdLast = document.createElement('td');
                 tdLast.appendChild(lastActive(c.lastTs));
 
-                tr.append(tdW, tdC, tdL, tdLast);
+                // Merge-into select
+                const tdMerge = document.createElement('td');
+                const sel = document.createElement('select');
+                sel.style.cssText = 'font-size:12px;padding:2px 6px;border-radius:6px;border:1px solid var(--border);max-width:200px;';
+                if (isParentDev) {
+                    sel.disabled = true;
+                    sel.title = 'This account already has aliases merged into it. Clear those aliases first.';
+                }
+                const noneOpt = document.createElement('option');
+                noneOpt.value = '';
+                noneOpt.textContent = '\u2014 (none)';
+                sel.appendChild(noneOpt);
+                // Valid parents: not self, not already a child themselves
+                const validParents = allContribs.filter(p => {
+                    const pk = devKey(p);
+                    return pk !== key && !mergedAccounts.has(pk);
+                });
+                let parentFound = !parentKey;
+                for (const parent of validParents) {
+                    const pk = devKey(parent);
+                    const opt = document.createElement('option');
+                    opt.value = pk;
+                    opt.textContent = parent.name || parent.email || '(unknown)';
+                    if (pk === parentKey) { opt.selected = true; parentFound = true; }
+                    sel.appendChild(opt);
+                }
+                // If stored parent is no longer valid, show it with a warning
+                if (!parentFound && parentKey) {
+                    const orphanC = allContribs.find(p => devKey(p) === parentKey);
+                    if (orphanC) {
+                        const opt = document.createElement('option');
+                        opt.value = parentKey;
+                        opt.textContent = (orphanC.name || orphanC.email || '(unknown)') + ' \u26A0';
+                        opt.selected = true;
+                        sel.appendChild(opt);
+                    }
+                }
+                sel.addEventListener('change', () => {
+                    if (sel.value) {
+                        mergedAccounts.set(key, sel.value);
+                        // Remove from exclusions — merge takes precedence
+                        excludedDevs.delete(key);
+                        saveExclusions();
+                    } else {
+                        mergedAccounts.delete(key);
+                    }
+                    saveMerges();
+                    renderDetails(currentPath);
+                });
+                tdMerge.appendChild(sel);
+
+                tr.append(tdW, tdC, tdL, tdLast, tdMerge);
                 tbody.appendChild(tr);
             }
             table.appendChild(tbody);
