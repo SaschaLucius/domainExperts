@@ -484,6 +484,7 @@
         let selectedRow = null;
         let currentTab = 'contributors'; // 'contributors' | 'domains' | 'pinned'
         let pinnedPaths = new Set();
+        let excludedDevs = new Set();
 
         // ---- loading --------------------------------------------------------------
         document.getElementById('file-input').addEventListener('change', (e) => {
@@ -507,6 +508,7 @@
             treeIndex = new Map();
             selectedRow = null;
             pinnedPaths = new Set();
+            excludedDevs = new Set();
             currentSortCol = 'share';
             currentSortDir = 'desc';
             currentTab = 'contributors';
@@ -673,9 +675,13 @@
         }
 
         // ---- metric computation ---------------------------------------------------
+        function devKey(c) { return c.email || ('name:' + c.name); }
+
         function computeRows(node) {
             const scope = (currentMetric === 'recency') ? 'all' : currentScope;
-            const rows = node.contributors.map((c) => ({
+            const rows = node.contributors
+                .filter(c => !excludedDevs.has(devKey(c)))
+                .map((c) => ({
                 c,
                 commitsVal: scope === 'recent' ? c.commitsRecent : c.commits,
                 linesVal: scope === 'recent' ? c.linesRecent : c.lines,
@@ -759,8 +765,10 @@
                 host.appendChild(note);
             } else if (currentTab === 'domains') {
                 renderDomainMapTab(p, host, recentLabel);
-            } else {
+            } else if (currentTab === 'pinned') {
                 renderPinnedTab(host, recentLabel);
+            } else if (currentTab === 'exclusions') {
+                renderExclusionsTab(host);
             }
         }
 
@@ -957,10 +965,12 @@
             const bar = document.createElement('div');
             bar.className = 'tab-bar';
             const pinnedLabel = pinnedPaths.size > 0 ? `Pinned (${pinnedPaths.size})` : 'Pinned';
+            const excludedLabel = excludedDevs.size > 0 ? `Exclusions (${excludedDevs.size})` : 'Exclusions';
             for (const t of [
                 { id: 'contributors', label: 'Contributors' },
                 { id: 'domains', label: 'Domain Map' },
                 { id: 'pinned', label: pinnedLabel },
+                { id: 'exclusions', label: excludedLabel },
             ]) {
                 const btn = document.createElement('button');
                 btn.textContent = t.label;
@@ -1136,6 +1146,90 @@
             });
             table.appendChild(tbody);
             return table;
+        }
+
+        // ---- tab 4: exclusions ----------------------------------------------------
+        function renderExclusionsTab(host) {
+            const rootNode = nodesByPath.get('');
+            if (!rootNode) {
+                const msg = document.createElement('div');
+                msg.className = 'empty';
+                msg.style.height = '160px';
+                msg.textContent = 'No data loaded.';
+                host.appendChild(msg);
+                return;
+            }
+
+            const summary = document.createElement('div');
+            summary.className = 'summary';
+            summary.innerHTML = excludedDevs.size > 0
+                ? `<b>${excludedDevs.size}</b> developer${excludedDevs.size === 1 ? '' : 's'} excluded from all metrics`
+                : 'No developers excluded. Toggle contributors below to remove them from all calculations.';
+            host.appendChild(summary);
+
+            const allContribs = [...rootNode.contributors].sort((a, b) => b.commits - a.commits);
+
+            const table = document.createElement('table');
+            table.className = 'contrib';
+
+            const thead = document.createElement('thead');
+            const hdrRow = document.createElement('tr');
+            for (const [lbl, cls] of [
+                ['Contributor', ''], ['Commits', 'num'], ['Lines', 'num'], ['Last Active', ''],
+            ]) {
+                const th = document.createElement('th');
+                th.textContent = lbl;
+                if (cls) th.className = cls;
+                hdrRow.appendChild(th);
+            }
+            thead.appendChild(hdrRow);
+            table.appendChild(thead);
+
+            const tbody = document.createElement('tbody');
+            for (const c of allContribs) {
+                const key = devKey(c);
+                const excluded = excludedDevs.has(key);
+                const tr = document.createElement('tr');
+                if (excluded) tr.style.opacity = '0.45';
+
+                const tdW = document.createElement('td');
+                tdW.style.cssText = 'white-space:nowrap;';
+                const btn = document.createElement('button');
+                btn.textContent = excluded ? 'Include' : 'Exclude';
+                btn.style.cssText = `font-size:11px;padding:2px 8px;border-radius:6px;border:1px solid var(--border);cursor:pointer;margin-right:10px;vertical-align:middle;background:${excluded ? '#fff' : '#fee2e2'};color:${excluded ? 'var(--text)' : '#b91c1c'};`;
+                btn.addEventListener('click', () => {
+                    if (excludedDevs.has(key)) excludedDevs.delete(key);
+                    else excludedDevs.add(key);
+                    renderDetails(currentPath);
+                });
+                const nameWrap = document.createElement('span');
+                nameWrap.className = 'who';
+                nameWrap.style.cssText = 'display:inline-flex;flex-direction:column;vertical-align:middle;';
+                const nameEl = document.createElement('span');
+                nameEl.className = 'name';
+                nameEl.textContent = c.name || c.email || '(unknown)';
+                const emailEl = document.createElement('span');
+                emailEl.className = 'email';
+                emailEl.textContent = c.email || '';
+                nameWrap.append(nameEl, emailEl);
+                tdW.append(btn, nameWrap);
+
+                const tdC = document.createElement('td');
+                tdC.className = 'num';
+                tdC.textContent = c.commits.toLocaleString();
+
+                const tdL = document.createElement('td');
+                tdL.className = 'num';
+                tdL.textContent = c.lines.toLocaleString();
+
+                const tdLast = document.createElement('td');
+                tdLast.appendChild(lastActive(c.lastTs));
+
+                tr.append(tdW, tdC, tdL, tdLast);
+                tbody.appendChild(tr);
+            }
+            table.appendChild(tbody);
+            host.appendChild(table);
         }
 
         function buildSubfolderTable(sfExperts, useFull = false) {
