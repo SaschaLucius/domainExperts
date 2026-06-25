@@ -440,6 +440,43 @@
             display: flex;
             flex-direction: column;
         }
+
+        /* ---- tree search ---- */
+        #tree-search-wrap {
+            display: none;
+            padding: 0 2px 6px;
+        }
+        #tree-search-wrap.visible { display: block; }
+        #tree-search {
+            width: 100%;
+            padding: 5px 10px;
+            font-size: 13px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: #fff;
+            color: var(--text);
+            outline: none;
+            -webkit-appearance: none;
+        }
+        #tree-search:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(59,130,246,.12);
+        }
+        #tree-search-results { list-style: none; margin: 0; padding: 0; }
+        .tree-match {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 6px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            color: var(--text);
+            overflow: hidden;
+        }
+        .tree-match:hover { background: var(--hover); }
+        .tree-match .match-path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .tree-match mark { background: #fef08a; border-radius: 2px; padding: 0; color: inherit; }
     </style>
 </head>
 
@@ -457,6 +494,10 @@
     <main>
         <aside id="tree-panel">
             <div class="empty" id="tree-empty">No data loaded</div>
+            <div id="tree-search-wrap">
+                <input type="search" id="tree-search" placeholder="Filter folders…" />
+            </div>
+            <ul id="tree-search-results" hidden></ul>
             <ul class="tree" id="tree-root" hidden></ul>
         </aside>
         <section id="detail-panel">
@@ -591,6 +632,11 @@
             treeRoot.hidden = false;
             document.getElementById('tree-empty').hidden = true;
             treeRoot.appendChild(renderTreeNode(''));
+
+            // clear tree search
+            document.getElementById('tree-search-wrap').classList.add('visible');
+            document.getElementById('tree-search').value = '';
+            document.getElementById('tree-search-results').hidden = true;
 
             // reset controls
             currentMetric = 'commits';
@@ -1538,6 +1584,83 @@
             table.appendChild(tbody);
             return table;
         }
+
+        // ---- tree search ---------------------------------------------------------
+        (function initTreeSearch() {
+            const input = document.getElementById('tree-search');
+            const results = document.getElementById('tree-search-results');
+            const treeRoot = document.getElementById('tree-root');
+
+            function applyFilter() {
+                const q = input.value.trim().toLowerCase();
+                if (!q) {
+                    results.hidden = true;
+                    if (data) treeRoot.hidden = false;
+                    return;
+                }
+                treeRoot.hidden = true;
+                results.innerHTML = '';
+
+                const matches = [];
+                for (const p of nodesByPath.keys()) {
+                    if (p !== '' && p.toLowerCase().includes(q)) matches.push(p);
+                }
+                // Leaf matches first, then alphabetical
+                matches.sort((a, b) => {
+                    const al = leaf(a).toLowerCase().includes(q);
+                    const bl = leaf(b).toLowerCase().includes(q);
+                    if (al !== bl) return al ? -1 : 1;
+                    return a.localeCompare(b);
+                });
+
+                if (matches.length === 0) {
+                    const li = document.createElement('li');
+                    li.style.cssText = 'padding:6px 10px;font-size:12px;color:var(--muted);';
+                    li.textContent = 'No folders match.';
+                    results.appendChild(li);
+                } else {
+                    for (const p of matches.slice(0, 200)) {
+                        const li = document.createElement('li');
+                        li.className = 'tree-match';
+
+                        const icon = document.createElement('span');
+                        icon.className = 'folder-icon';
+                        icon.textContent = '📁';
+
+                        const pathSpan = document.createElement('span');
+                        pathSpan.className = 'match-path';
+                        const lower = p.toLowerCase();
+                        const idx = lower.indexOf(q);
+                        if (idx === -1) {
+                            pathSpan.textContent = p;
+                        } else {
+                            pathSpan.appendChild(document.createTextNode(p.slice(0, idx)));
+                            const mark = document.createElement('mark');
+                            mark.textContent = p.slice(idx, idx + q.length);
+                            pathSpan.appendChild(mark);
+                            if (idx + q.length < p.length)
+                                pathSpan.appendChild(document.createTextNode(p.slice(idx + q.length)));
+                        }
+
+                        li.appendChild(icon);
+                        li.appendChild(pathSpan);
+                        li.addEventListener('click', () => {
+                            input.value = '';
+                            results.hidden = true;
+                            treeRoot.hidden = false;
+                            go(p);
+                        });
+                        results.appendChild(li);
+                    }
+                }
+                results.hidden = false;
+            }
+
+            input.addEventListener('input', applyFilter);
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') { input.value = ''; applyFilter(); input.blur(); }
+            });
+        })();
     </script>
 </body>
 
