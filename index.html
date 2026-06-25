@@ -446,7 +446,11 @@
             display: none;
             padding: 0 2px 6px;
         }
-        #tree-search-wrap.visible { display: block; }
+
+        #tree-search-wrap.visible {
+            display: block;
+        }
+
         #tree-search {
             width: 100%;
             padding: 5px 10px;
@@ -458,11 +462,18 @@
             outline: none;
             -webkit-appearance: none;
         }
+
         #tree-search:focus {
             border-color: var(--accent);
-            box-shadow: 0 0 0 3px rgba(59,130,246,.12);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, .12);
         }
-        #tree-search-results { list-style: none; margin: 0; padding: 0; }
+
+        #tree-search-results {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+        }
+
         .tree-match {
             display: flex;
             align-items: center;
@@ -474,9 +485,43 @@
             color: var(--text);
             overflow: hidden;
         }
-        .tree-match:hover { background: var(--hover); }
-        .tree-match .match-path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .tree-match mark { background: #fef08a; border-radius: 2px; padding: 0; color: inherit; }
+
+        .tree-match:hover {
+            background: var(--hover);
+        }
+
+        .tree-match .match-path {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .tree-match mark {
+            background: #fef08a;
+            border-radius: 2px;
+            padding: 0;
+            color: inherit;
+        }
+
+        /* ---- tab filter inputs (People / Exclusions) ---- */
+        .tab-filter { margin-bottom: 10px; }
+        .tab-filter input[type="search"] {
+            width: 100%;
+            max-width: 320px;
+            padding: 5px 10px;
+            font-size: 13px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: #fff;
+            color: var(--text);
+            outline: none;
+            -webkit-appearance: none;
+        }
+        .tab-filter input[type="search"]:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(59,130,246,.12);
+        }
     </style>
 </head>
 
@@ -542,6 +587,8 @@
         let peopleSortCol = 'commits';    // 'contributor' | 'commits' | 'lines' | 'lastactive'
         let peopleSortDir = 'desc';
         let currentPersonKey = null;      // null = list view; string = person detail view
+        let peopleFilterQ = '';           // live filter text in People tab
+        let exclusionsFilterQ = '';       // live filter text in Exclusions tab
 
         // ---- exclusion persistence -----------------------------------------------
         function storageKey() {
@@ -563,7 +610,7 @@
             return 'domainExperts:merges:' + (data && data.repoName ? data.repoName : '__default__');
         }
         function saveMerges() {
-            try { localStorage.setItem(storageKeyMerges(), JSON.stringify([...mergedAccounts])); } catch (e) {}
+            try { localStorage.setItem(storageKeyMerges(), JSON.stringify([...mergedAccounts])); } catch (e) { }
         }
         function loadMerges() {
             try {
@@ -572,7 +619,7 @@
                     const entries = JSON.parse(raw);
                     if (Array.isArray(entries)) entries.forEach(([k, v]) => mergedAccounts.set(k, v));
                 }
-            } catch (e) {}
+            } catch (e) { }
         }
 
         // ---- loading --------------------------------------------------------------
@@ -611,6 +658,8 @@
             peopleSortCol = 'commits';
             peopleSortDir = 'desc';
             currentPersonKey = null;
+            peopleFilterQ = '';
+            exclusionsFilterQ = '';
 
             for (const node of data.nodes) nodesByPath.set(node.path, node);
 
@@ -1377,6 +1426,15 @@
             });
             host.appendChild(bulkBtn);
 
+            const exFilterWrap = document.createElement('div');
+            exFilterWrap.className = 'tab-filter';
+            const exFilterInput = document.createElement('input');
+            exFilterInput.type = 'search';
+            exFilterInput.placeholder = 'Filter by name or email…';
+            exFilterInput.value = exclusionsFilterQ;
+            exFilterWrap.appendChild(exFilterInput);
+            host.appendChild(exFilterWrap);
+
             const table = document.createElement('table');
             table.className = 'contrib';
 
@@ -1415,6 +1473,7 @@
                 const isParentDev = parentKeys.has(key);
                 const parentKey = mergedAccounts.get(key) || '';
                 const tr = document.createElement('tr');
+                tr.dataset.search = ((c.name || '') + ' ' + (c.email || '')).toLowerCase();
                 if (excluded) tr.style.opacity = '0.45';
                 else if (merged) tr.style.cssText = 'opacity:0.6;background:var(--selected);';
 
@@ -1511,6 +1570,16 @@
             }
             table.appendChild(tbody);
             host.appendChild(table);
+
+            // live filter
+            function applyExclusionsFilter(q) {
+                exclusionsFilterQ = q.toLowerCase().trim();
+                for (const tr of Array.from(tbody.rows)) {
+                    tr.hidden = !(!exclusionsFilterQ || tr.dataset.search.includes(exclusionsFilterQ));
+                }
+            }
+            applyExclusionsFilter(exclusionsFilterQ);
+            exFilterInput.addEventListener('input', () => applyExclusionsFilter(exFilterInput.value));
         }
 
         function buildSubfolderTable(sfExperts, useFull = false) {
@@ -1642,8 +1711,16 @@
 
             const summary = document.createElement('div');
             summary.className = 'summary';
-            summary.innerHTML = `<b>${active.length}</b> contributor${active.length === 1 ? '' : 's'} · click a row to see their domain expertise`;
             host.appendChild(summary);
+
+            const filterWrap = document.createElement('div');
+            filterWrap.className = 'tab-filter';
+            const filterInput = document.createElement('input');
+            filterInput.type = 'search';
+            filterInput.placeholder = 'Filter by name or email…';
+            filterInput.value = peopleFilterQ;
+            filterWrap.appendChild(filterInput);
+            host.appendChild(filterWrap);
 
             const table = document.createElement('table');
             table.className = 'contrib';
@@ -1687,6 +1764,7 @@
             for (const r of active) {
                 const key = devKey(r.c);
                 const tr = document.createElement('tr');
+                tr.dataset.search = ((r.c.name || '') + ' ' + (r.c.email || '')).toLowerCase();
                 tr.style.cursor = 'pointer';
                 tr.addEventListener('click', () => { currentPersonKey = key; renderDetails(currentPath); });
                 tr.addEventListener('mouseenter', () => { tr.style.background = 'var(--hover)'; });
@@ -1721,6 +1799,23 @@
             }
             table.appendChild(tbody);
             host.appendChild(table);
+
+            // live filter
+            const totalPeople = active.length;
+            function applyPeopleFilter(q) {
+                peopleFilterQ = q.toLowerCase().trim();
+                let shown = 0;
+                for (const tr of Array.from(tbody.rows)) {
+                    const match = !peopleFilterQ || tr.dataset.search.includes(peopleFilterQ);
+                    tr.hidden = !match;
+                    if (match) shown++;
+                }
+                summary.innerHTML = (peopleFilterQ && shown < totalPeople)
+                    ? `<b>${shown}</b> of <b>${totalPeople}</b> contributor${totalPeople === 1 ? '' : 's'} · click a row to see their domain expertise`
+                    : `<b>${totalPeople}</b> contributor${totalPeople === 1 ? '' : 's'} · click a row to see their domain expertise`;
+            }
+            applyPeopleFilter(peopleFilterQ);
+            filterInput.addEventListener('input', () => applyPeopleFilter(filterInput.value));
         }
 
         function renderPersonDetail(host, personKey) {
@@ -1761,8 +1856,10 @@
                 const idx = active.findIndex(r => devKey(r.c) === personKey);
                 if (idx === -1) continue;
                 const r = active[idx];
-                domains.push({ path: p, rank: idx + 1, total: active.length, pct: r.pct,
-                    commitsVal: r.commitsVal, linesVal: r.linesVal, lastTs: r.c.lastTs });
+                domains.push({
+                    path: p, rank: idx + 1, total: active.length, pct: r.pct,
+                    commitsVal: r.commitsVal, linesVal: r.linesVal, lastTs: r.c.lastTs
+                });
             }
             domains.sort((a, b) => a.rank - b.rank || b.pct - a.pct || a.path.localeCompare(b.path));
 
