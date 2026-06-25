@@ -161,6 +161,27 @@
             font-weight: 400;
         }
 
+        .pin-btn {
+            margin-left: auto;
+            font-size: 11px;
+            line-height: 1;
+            opacity: 0;
+            cursor: pointer;
+            flex-shrink: 0;
+            padding: 1px 2px;
+            border-radius: 3px;
+            user-select: none;
+        }
+
+        .tree-row:hover .pin-btn {
+            opacity: 0.35;
+        }
+
+        .tree-row.pinned .pin-btn {
+            opacity: 1;
+            color: var(--accent);
+        }
+
         .empty {
             height: 100%;
             display: flex;
@@ -454,14 +475,15 @@
         let data = null;                 // parsed JSON
         let nodesByPath = new Map();     // path -> node
         let childrenByPath = new Map();  // parentPath -> [childPath,...]
-        let treeIndex = new Map();       // path -> { row, expand }
+        let treeIndex = new Map();       // path -> { row, expand, syncPin }
         let currentPath = null;
         let currentMetric = 'commits';   // 'commits' | 'combined' | 'recency'
         let currentScope = 'all';        // 'all' | 'recent'
         let currentSortCol = 'share';    // 'contributor' | 'share' | 'commits' | 'lines' | 'lastactive'
         let currentSortDir = 'desc';     // 'asc' | 'desc'
         let selectedRow = null;
-        let currentTab = 'contributors'; // 'contributors' | 'domains'
+        let currentTab = 'contributors'; // 'contributors' | 'domains' | 'pinned'
+        let pinnedPaths = new Set();
 
         // ---- loading --------------------------------------------------------------
         document.getElementById('file-input').addEventListener('change', (e) => {
@@ -484,6 +506,7 @@
             childrenByPath = new Map();
             treeIndex = new Map();
             selectedRow = null;
+            pinnedPaths = new Set();
             currentSortCol = 'share';
             currentSortDir = 'desc';
             currentTab = 'contributors';
@@ -564,10 +587,17 @@
             if (node) count.textContent = ' (' + node.contributors.length + ')';
             count.className = 'count';
 
+            const pinBtn = document.createElement('span');
+            pinBtn.className = 'pin-btn';
+            pinBtn.textContent = '📌';
+            pinBtn.title = 'Pin / unpin';
+            pinBtn.addEventListener('click', (e) => { e.stopPropagation(); togglePin(p); });
+
             row.appendChild(toggle);
             row.appendChild(icon);
             row.appendChild(label);
             row.appendChild(count);
+            row.appendChild(pinBtn);
             li.appendChild(row);
 
             const childUl = document.createElement('ul');
@@ -596,7 +626,9 @@
             });
             row.addEventListener('click', () => { go(p); expand(); });
 
-            treeIndex.set(p, { row, expand });
+            function syncPin() { row.classList.toggle('pinned', pinnedPaths.has(p)); }
+            syncPin();
+            treeIndex.set(p, { row, expand, syncPin });
             return li;
         }
 
@@ -622,6 +654,14 @@
             selectedRow = row;
             row.classList.add('selected');
             row.scrollIntoView({ block: 'nearest' });
+        }
+
+        function togglePin(p) {
+            if (pinnedPaths.has(p)) pinnedPaths.delete(p);
+            else pinnedPaths.add(p);
+            const e = treeIndex.get(p);
+            if (e && e.syncPin) e.syncPin();
+            if (currentTab === 'pinned' && currentPath !== null) renderDetails(currentPath);
         }
 
         // ---- navigation -----------------------------------------------------------
@@ -674,12 +714,19 @@
             const recentLabel = `Recent (${data.recentDays}d)`;
 
             host.innerHTML = '';
-            host.appendChild(buildBreadcrumb(p));
 
-            const title = document.createElement('h2');
-            title.className = 'path-title';
-            title.textContent = p === '' ? displayName('') : p;
-            host.appendChild(title);
+            if (currentTab === 'pinned') {
+                const title = document.createElement('h2');
+                title.className = 'path-title';
+                title.textContent = 'Pinned Folders';
+                host.appendChild(title);
+            } else {
+                host.appendChild(buildBreadcrumb(p));
+                const title = document.createElement('h2');
+                title.className = 'path-title';
+                title.textContent = p === '' ? displayName('') : p;
+                host.appendChild(title);
+            }
 
             host.appendChild(buildTabBar());
 
@@ -710,8 +757,10 @@
                     note.textContent = 'Commits: a commit is counted once per folder it touched (rolled up over the subtree).';
                 }
                 host.appendChild(note);
-            } else {
+            } else if (currentTab === 'domains') {
                 renderDomainMapTab(p, host, recentLabel);
+            } else {
+                renderPinnedTab(host, recentLabel);
             }
         }
 
@@ -907,9 +956,11 @@
         function buildTabBar() {
             const bar = document.createElement('div');
             bar.className = 'tab-bar';
+            const pinnedLabel = pinnedPaths.size > 0 ? `Pinned (${pinnedPaths.size})` : 'Pinned';
             for (const t of [
                 { id: 'contributors', label: 'Contributors' },
                 { id: 'domains', label: 'Domain Map' },
+                { id: 'pinned', label: pinnedLabel },
             ]) {
                 const btn = document.createElement('button');
                 btn.textContent = t.label;
@@ -977,6 +1028,66 @@
             host.appendChild(sections);
         }
 
+        // ---- tab 3: pinned folders ------------------------------------------------
+        function renderPinnedTab(host, recentLabel) {
+            host.appendChild(buildControls(recentLabel));
+
+            const pinned = [...pinnedPaths].filter(p => nodesByPath.has(p));
+
+            if (pinned.length === 0) {
+                const msg = document.createElement('div');
+                msg.className = 'empty';
+                msg.style.height = '160px';
+                msg.textContent = 'No folders pinned. Click 📌 on a folder in the tree to pin it.';
+                host.appendChild(msg);
+                return;
+            }
+
+            const subfolders = pinned.flatMap(p => (childrenByPath.get(p) || []).filter(k => nodesByPath.has(k)));
+
+            if (subfolders.length === 0) {
+                const msg = document.createElement('div');
+                msg.className = 'empty';
+                msg.style.height = '160px';
+                msg.textContent = 'Pinned folders have no subfolders.';
+                host.appendChild(msg);
+                return;
+            }
+
+            const sfExperts = subfolders.map(k => {
+                const ex = topExpert(nodesByPath.get(k));
+                return { path: k, contributor: ex ? ex.contributor : null, pct: ex ? ex.pct : 0 };
+            });
+
+            const total = subfolders.length;
+            const expertMap = new Map();
+            for (const sf of sfExperts) {
+                if (!sf.contributor) continue;
+                const key = sf.contributor.email || sf.contributor.name || '?';
+                if (!expertMap.has(key)) expertMap.set(key, { c: sf.contributor, paths: [] });
+                expertMap.get(key).paths.push(sf.path);
+            }
+            const expertList = [...expertMap.values()].sort((a, b) => b.paths.length - a.paths.length);
+
+            const sections = document.createElement('div');
+            sections.className = 'domain-sections';
+
+            const h1 = document.createElement('p');
+            h1.className = 'section-title';
+            h1.textContent = 'Expert coverage';
+            sections.appendChild(h1);
+            sections.appendChild(buildCoverageTable(expertList, total));
+
+            const h2el = document.createElement('p');
+            h2el.className = 'section-title';
+            h2el.style.marginTop = '20px';
+            h2el.textContent = 'Subfolder breakdown';
+            sections.appendChild(h2el);
+            sections.appendChild(buildSubfolderTable(sfExperts, true));
+
+            host.appendChild(sections);
+        }
+
         function buildCoverageTable(expertList, total) {
             const table = document.createElement('table');
             table.className = 'contrib';
@@ -1027,7 +1138,7 @@
             return table;
         }
 
-        function buildSubfolderTable(sfExperts) {
+        function buildSubfolderTable(sfExperts, useFull = false) {
             const table = document.createElement('table');
             table.className = 'contrib';
 
@@ -1051,7 +1162,7 @@
                 const tdP = document.createElement('td');
                 const a = document.createElement('a');
                 a.style.cssText = 'color:var(--accent);cursor:pointer;font-size:13px;font-weight:500;';
-                a.textContent = leaf(sf.path) + '/';
+                a.textContent = useFull ? sf.path : leaf(sf.path) + '/';
                 a.addEventListener('click', () => go(sf.path));
                 a.addEventListener('mouseenter', () => { a.style.textDecoration = 'underline'; });
                 a.addEventListener('mouseleave', () => { a.style.textDecoration = ''; });
