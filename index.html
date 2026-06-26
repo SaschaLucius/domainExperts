@@ -98,9 +98,34 @@
             max-width: 50%;
             border-right: 1px solid var(--border);
             background: var(--panel);
+            display: flex;
+            flex-direction: column;
+            resize: horizontal;
+        }
+
+        #tree-content {
+            flex: 1;
             overflow: auto;
             padding: 8px 6px;
-            resize: horizontal;
+            min-height: 0;
+        }
+
+        #tree-metric-bar {
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 8px;
+            border-top: 1px solid var(--border);
+            background: var(--panel);
+        }
+
+        .tree-metric-lbl {
+            font-size: 11px;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: .04em;
+            white-space: nowrap;
         }
 
         #detail-panel {
@@ -545,12 +570,22 @@
 
     <main>
         <aside id="tree-panel">
-            <div class="empty" id="tree-empty">No data loaded</div>
-            <div id="tree-search-wrap">
-                <input type="search" id="tree-search" placeholder="Filter folders…" />
+            <div id="tree-content">
+                <div class="empty" id="tree-empty">No data loaded</div>
+                <div id="tree-search-wrap">
+                    <input type="search" id="tree-search" placeholder="Filter folders…" />
+                </div>
+                <ul id="tree-search-results" hidden></ul>
+                <ul class="tree" id="tree-root" hidden></ul>
             </div>
-            <ul id="tree-search-results" hidden></ul>
-            <ul class="tree" id="tree-root" hidden></ul>
+            <div id="tree-metric-bar" hidden>
+                <span class="tree-metric-lbl">Show:</span>
+                <div class="segmented" id="tree-metric-seg">
+                    <button class="active" data-m="contributors">Contributors</button>
+                    <button data-m="commits">Commits</button>
+                    <button data-m="lines">Lines</button>
+                </div>
+            </div>
         </aside>
         <section id="detail-panel">
             <div class="empty" id="detail-empty">
@@ -577,6 +612,7 @@
         let treeIndex = new Map();       // path -> { row, expand, syncPin }
         let currentPath = null;
         let currentMetric = 'commits';   // 'commits' | 'combined' | 'recency'
+        let treeMetric = 'contributors'; // 'contributors' | 'commits' | 'lines'
         let currentScope = 'all';        // 'all' | 'recent'
         let currentBasis = 'folder';     // 'folder' | 'global' — share denominator scope
         let currentSortCol = 'share';    // 'contributor' | 'share' | 'commits' | 'lines' | 'lastactive'
@@ -740,6 +776,13 @@
             loadMerges();
             loadPins();
 
+            treeMetric = 'contributors';
+            const tmBar = document.getElementById('tree-metric-bar');
+            tmBar.hidden = false;
+            for (const btn of tmBar.querySelectorAll('button')) {
+                btn.classList.toggle('active', btn.dataset.m === 'contributors');
+            }
+
             // select & reveal root
             go('');
             const rootEntry = treeIndex.get('');
@@ -758,6 +801,21 @@
         function displayName(p) {
             if (p === '') return (data && data.repoName) ? data.repoName + '/' : '/';
             return leaf(p);
+        }
+
+        function getTreeCount(p) {
+            const node = nodesByPath.get(p);
+            if (!node) return 0;
+            if (treeMetric === 'contributors') return node.contributors.length;
+            let sum = 0;
+            for (const c of node.contributors) sum += (treeMetric === 'commits' ? c.commits : c.lines) || 0;
+            return sum;
+        }
+
+        function refreshTreeCounts() {
+            for (const entry of treeIndex.values()) {
+                if (entry.syncCount) entry.syncCount();
+            }
         }
 
         // ---- tree rendering (lazy) ------------------------------------------------
@@ -781,9 +839,11 @@
             label.textContent = displayName(p);
 
             const count = document.createElement('span');
-            const node = nodesByPath.get(p);
-            if (node) count.textContent = ' (' + node.contributors.length + ')';
             count.className = 'count';
+            function syncCount() {
+                count.textContent = nodesByPath.has(p) ? ' (' + getTreeCount(p).toLocaleString() + ')' : '';
+            }
+            syncCount();
 
             const pinBtn = document.createElement('span');
             pinBtn.className = 'pin-btn';
@@ -826,7 +886,7 @@
 
             function syncPin() { row.classList.toggle('pinned', pinnedPaths.has(p)); }
             syncPin();
-            treeIndex.set(p, { row, expand, syncPin });
+            treeIndex.set(p, { row, expand, syncPin, syncCount });
             return li;
         }
 
@@ -2132,6 +2192,18 @@
                 if (e.key === 'Escape') { input.value = ''; applyFilter(); input.blur(); }
             });
         })();
+
+        document.getElementById('tree-metric-seg').addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-m]');
+            if (!btn) return;
+            const m = btn.dataset.m;
+            if (m === treeMetric) return;
+            treeMetric = m;
+            for (const b of btn.closest('.segmented').querySelectorAll('button')) {
+                b.classList.toggle('active', b === btn);
+            }
+            refreshTreeCounts();
+        });
     </script>
 </body>
 
