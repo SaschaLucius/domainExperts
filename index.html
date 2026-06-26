@@ -1054,14 +1054,26 @@
             const scope = (currentMetric === 'recency' || currentMetric === 'blame') ? 'all' : currentScope;
             const { rows, sumC, sumL, sumScore, sumBlame } = buildScopedRows(node, scope);
 
+            let sumLinesCalc = sumL;
+            if (currentMetric === 'combined') {
+                if (currentLinesView === 'added') {
+                    sumLinesCalc = 0;
+                    for (const r of rows) sumLinesCalc += r.linesAddedVal;
+                } else if (currentLinesView === 'removed') {
+                    sumLinesCalc = 0;
+                    for (const r of rows) sumLinesCalc += r.linesRemovedVal;
+                }
+            }
+
             for (const r of rows) {
                 if (currentMetric === 'commits') r.raw = r.commitsVal;
                 else if (currentMetric === 'recency') r.raw = r.c.score;
                 else if (currentMetric === 'blame') r.raw = r.blameVal;
                 else {
-                    const sc = sumC > 0 ? r.commitsVal / sumC : 0;
-                    const sl = sumL > 0 ? r.linesVal / sumL : 0;
-                    r.raw = W_COMMITS * sc + W_LINES * sl;
+                    const lv = currentLinesView === 'added' ? r.linesAddedVal
+                             : currentLinesView === 'removed' ? r.linesRemovedVal
+                             : r.linesVal;
+                    r.raw = sumLinesCalc > 0 ? lv / sumLinesCalc : 0;
                 }
             }
 
@@ -1160,7 +1172,8 @@
                 const note = document.createElement('div');
                 note.className = 'note';
                 if (currentMetric === 'combined') {
-                    note.textContent = `"Commits + Lines" = ${W_COMMITS} × commit share + ${W_LINES} × line share.`;
+                    const linesType = currentLinesView === 'added' ? 'added' : currentLinesView === 'removed' ? 'removed' : 'changed';
+                    note.textContent = `Lines: contributor share by lines ${linesType}.`;
                 } else if (currentMetric === 'recency') {
                     note.textContent = `Recency-weighted: each commit decays with a ${data.halfLifeDays || 365}-day half-life (scope toggle disabled).`;
                 } else if (currentMetric === 'blame') {
@@ -1220,7 +1233,7 @@
 
             const metricButtons = [
                 { id: 'commits', label: 'Commits' },
-                { id: 'combined', label: 'Commits + Lines' },
+                { id: 'combined', label: 'Lines' },
                 { id: 'recency', label: 'Recency-weighted' },
             ];
             if (data.hasBlame) metricButtons.push({ id: 'blame', label: 'Blame' });
