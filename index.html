@@ -614,7 +614,6 @@
         let currentMetric = 'commits';   // 'commits' | 'combined' | 'recency'
         let treeMetric = 'contributors'; // 'contributors' | 'commits' | 'lines'
         let currentScope = 'all';        // 'all' | 'recent'
-        let currentBasis = 'folder';     // 'folder' | 'global' — share denominator scope
         let currentSortCol = 'share';    // 'contributor' | 'share' | 'commits' | 'lines' | 'lastactive'
         let currentSortDir = 'desc';     // 'asc' | 'desc'
         let coverageSortCol = 'coverage';  // 'expert' | 'coverage'
@@ -769,7 +768,6 @@
             // reset controls
             currentMetric = 'commits';
             currentScope = 'all';
-            currentBasis = 'folder';
 
             // restore saved exclusions for this repo
             loadExclusions();
@@ -983,38 +981,19 @@
             const scope = (currentMetric === 'recency') ? 'all' : currentScope;
             const { rows, sumC, sumL, sumScore } = buildScopedRows(node, scope);
 
-            // Choose the comparison universe for the "share" denominator:
-            //   folder (default) — shares are relative to this folder's contributors
-            //   global           — shares are relative to the whole repository (root totals)
-            let totC = sumC, totL = sumL, totScore = sumScore;
-            if (currentBasis === 'global') {
-                const rootNode = nodesByPath.get('');
-                if (rootNode && rootNode !== node) {
-                    const g = buildScopedRows(rootNode, scope);
-                    totC = g.sumC; totL = g.sumL; totScore = g.sumScore;
-                }
-            }
-
             for (const r of rows) {
                 if (currentMetric === 'commits') r.raw = r.commitsVal;
                 else if (currentMetric === 'recency') r.raw = r.c.score;
                 else {
-                    const sc = totC > 0 ? r.commitsVal / totC : 0;
-                    const sl = totL > 0 ? r.linesVal / totL : 0;
+                    const sc = sumC > 0 ? r.commitsVal / sumC : 0;
+                    const sl = sumL > 0 ? r.linesVal / sumL : 0;
                     r.raw = W_COMMITS * sc + W_LINES * sl;
                 }
             }
 
             // Denominator that converts raw values into percentages.
-            let denom;
-            if (currentBasis === 'global') {
-                if (currentMetric === 'commits') denom = totC;
-                else if (currentMetric === 'recency') denom = totScore;
-                else denom = 1; // combined raw is already normalized against global totals
-            } else {
-                denom = 0;
-                for (const r of rows) denom += r.raw;
-            }
+            let denom = 0;
+            for (const r of rows) denom += r.raw;
             for (const r of rows) r.pct = denom > 0 ? (r.raw / denom * 100) : 0;
 
             rows.sort((a, b) => (b.raw - a.raw) || (b.commitsVal - a.commitsVal));
@@ -1073,9 +1052,6 @@
                 } else {
                     note.textContent = 'Commits: a commit is counted once per folder it touched (rolled up over the subtree).';
                 }
-                if (currentBasis === 'global') {
-                    note.textContent += ' Share % is relative to the whole repository (Global scope).';
-                }
                 host.appendChild(note);
             } else if (currentTab === 'domains') {
                 renderDomainMapTab(p, host, recentLabel);
@@ -1128,14 +1104,8 @@
                 (id) => { currentScope = id; renderDetails(currentPath); },
                 currentMetric === 'recency');
 
-            const basisGroup = segmented('Scope', [
-                { id: 'folder', label: 'Folder' },
-                { id: 'global', label: 'Global' },
-            ], currentBasis, (id) => { currentBasis = id; renderDetails(currentPath); });
-
             wrap.appendChild(metricGroup);
             wrap.appendChild(scopeGroup);
-            wrap.appendChild(basisGroup);
             return wrap;
         }
 
