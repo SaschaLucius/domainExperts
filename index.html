@@ -1046,7 +1046,28 @@
                     (scope === 'recent' ? ` · ${recentLabel}` : '');
                 host.appendChild(summary);
 
-                host.appendChild(buildTable(rows));
+                const table = buildTable(rows);
+                const allTbodyRows = Array.from(table.querySelector('tbody').rows);
+                const EXPERT_LIMIT = 3;
+                if (allTbodyRows.length > EXPERT_LIMIT) {
+                    for (let i = EXPERT_LIMIT; i < allTbodyRows.length; i++) allTbodyRows[i].hidden = true;
+                }
+                host.appendChild(table);
+
+                if (allTbodyRows.length > EXPERT_LIMIT) {
+                    let expanded = false;
+                    const expandBtn = document.createElement('button');
+                    expandBtn.textContent = `Show all ${allTbodyRows.length} contributors ▼`;
+                    expandBtn.style.cssText = 'font-size:12px;color:var(--accent);background:none;border:none;cursor:pointer;padding:4px 0 8px;display:block;';
+                    expandBtn.addEventListener('click', () => {
+                        expanded = !expanded;
+                        for (let i = EXPERT_LIMIT; i < allTbodyRows.length; i++) allTbodyRows[i].hidden = !expanded;
+                        expandBtn.textContent = expanded
+                            ? 'Show fewer ▲'
+                            : `Show all ${allTbodyRows.length} contributors ▼`;
+                    });
+                    host.appendChild(expandBtn);
+                }
 
                 const note = document.createElement('div');
                 note.className = 'note';
