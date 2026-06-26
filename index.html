@@ -623,6 +623,21 @@
                 }
             } catch (e) { }
         }
+        function storageKeyPins() {
+            return 'domainExperts:pins:' + (data && data.repoName ? data.repoName : '__default__');
+        }
+        function savePins() {
+            try { localStorage.setItem(storageKeyPins(), JSON.stringify([...pinnedPaths])); } catch (e) { }
+        }
+        function loadPins() {
+            try {
+                const raw = localStorage.getItem(storageKeyPins());
+                if (raw) {
+                    const paths = JSON.parse(raw);
+                    if (Array.isArray(paths)) paths.forEach(p => pinnedPaths.add(p));
+                }
+            } catch (e) { }
+        }
 
         // ---- loading --------------------------------------------------------------
         document.getElementById('file-input').addEventListener('change', (e) => {
@@ -704,6 +719,7 @@
             // restore saved exclusions for this repo
             loadExclusions();
             loadMerges();
+            loadPins();
 
             // select & reveal root
             go('');
@@ -822,6 +838,7 @@
         function togglePin(p) {
             if (pinnedPaths.has(p)) pinnedPaths.delete(p);
             else pinnedPaths.add(p);
+            savePins();
             const e = treeIndex.get(p);
             if (e && e.syncPin) e.syncPin();
             if (currentTab === 'pinned' && currentPath !== null) renderDetails(currentPath);
