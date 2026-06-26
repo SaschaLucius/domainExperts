@@ -221,6 +221,9 @@ function main() {
         linesAddedRecent: 0, linesRemovedRecent: 0,
         commits30: 0, commits90: 0, commits180: 0,
         lines30: 0, lines90: 0, lines180: 0,
+        linesAdded30: 0, linesRemoved30: 0,
+        linesAdded90: 0, linesRemoved90: 0,
+        linesAdded180: 0, linesRemoved180: 0,
         lastTs: 0, firstTs: 0, score: 0 };
       authors.set(key, st);
     }
@@ -272,9 +275,9 @@ function main() {
         st.linesAddedRecent += added;
         st.linesRemovedRecent += removed;
       }
-      if (cur.ts >= cutoff30)  st.lines30  += churn;
-      if (cur.ts >= cutoff90)  st.lines90  += churn;
-      if (cur.ts >= cutoff180) st.lines180 += churn;
+      if (cur.ts >= cutoff30)  { st.lines30  += churn; st.linesAdded30  += added; st.linesRemoved30  += removed; }
+      if (cur.ts >= cutoff90)  { st.lines90  += churn; st.linesAdded90  += added; st.linesRemoved90  += removed; }
+      if (cur.ts >= cutoff180) { st.lines180 += churn; st.linesAdded180 += added; st.linesRemoved180 += removed; }
       if (!seenDirs.has(dir)) {
         // count each commit at most once per folder
         seenDirs.add(dir);
@@ -327,6 +330,12 @@ function main() {
           lines30: st.lines30,
           lines90: st.lines90,
           lines180: st.lines180,
+          linesAdded30: st.linesAdded30,
+          linesRemoved30: st.linesRemoved30,
+          linesAdded90: st.linesAdded90,
+          linesRemoved90: st.linesRemoved90,
+          linesAdded180: st.linesAdded180,
+          linesRemoved180: st.linesRemoved180,
           lastTs: st.lastTs,
           firstTs: st.firstTs,
           score: Math.round(st.score * 10000) / 10000,

@@ -955,7 +955,7 @@
                 const key = devKey(c);
                 const parentKey = mergedAccounts.get(key);
                 if (!parentKey || (!ignoreExclusions && excludedDevs.has(parentKey))) continue;
-                if (!extras.has(parentKey)) extras.set(parentKey, { commits: 0, lines: 0, linesAdded: 0, linesRemoved: 0, commitsRecent: 0, linesRecent: 0, linesAddedRecent: 0, linesRemovedRecent: 0, commits30: 0, commits90: 0, commits180: 0, lines30: 0, lines90: 0, lines180: 0, blameLines: 0, score: 0, lastTs: 0, firstTs: 0 });
+                if (!extras.has(parentKey)) extras.set(parentKey, { commits: 0, lines: 0, linesAdded: 0, linesRemoved: 0, commitsRecent: 0, linesRecent: 0, linesAddedRecent: 0, linesRemovedRecent: 0, commits30: 0, commits90: 0, commits180: 0, lines30: 0, lines90: 0, lines180: 0, linesAdded30: 0, linesRemoved30: 0, linesAdded90: 0, linesRemoved90: 0, linesAdded180: 0, linesRemoved180: 0, blameLines: 0, score: 0, lastTs: 0, firstTs: 0 });
                 const ex = extras.get(parentKey);
                 ex.commits += c.commits || 0;
                 ex.lines += c.lines || 0;
@@ -971,6 +971,12 @@
                 ex.lines30 += c.lines30 || 0;
                 ex.lines90 += c.lines90 || 0;
                 ex.lines180 += c.lines180 || 0;
+                ex.linesAdded30 += c.linesAdded30 || 0;
+                ex.linesRemoved30 += c.linesRemoved30 || 0;
+                ex.linesAdded90 += c.linesAdded90 || 0;
+                ex.linesRemoved90 += c.linesRemoved90 || 0;
+                ex.linesAdded180 += c.linesAdded180 || 0;
+                ex.linesRemoved180 += c.linesRemoved180 || 0;
                 ex.blameLines += c.blameLines || 0;
                 ex.score += c.score || 0;
                 if (c.lastTs) ex.lastTs = Math.max(ex.lastTs, c.lastTs);
@@ -998,6 +1004,12 @@
                         lines30: (c.lines30 || 0) + (ex.lines30 || 0),
                         lines90: (c.lines90 || 0) + (ex.lines90 || 0),
                         lines180: (c.lines180 || 0) + (ex.lines180 || 0),
+                        linesAdded30: (c.linesAdded30 || 0) + (ex.linesAdded30 || 0),
+                        linesRemoved30: (c.linesRemoved30 || 0) + (ex.linesRemoved30 || 0),
+                        linesAdded90: (c.linesAdded90 || 0) + (ex.linesAdded90 || 0),
+                        linesRemoved90: (c.linesRemoved90 || 0) + (ex.linesRemoved90 || 0),
+                        linesAdded180: (c.linesAdded180 || 0) + (ex.linesAdded180 || 0),
+                        linesRemoved180: (c.linesRemoved180 || 0) + (ex.linesRemoved180 || 0),
                         blameLines: (c.blameLines || 0) + (ex.blameLines || 0),
                         score: (c.score || 0) + ex.score,
                         lastTs: ex.lastTs > (c.lastTs || 0) ? ex.lastTs : c.lastTs,
@@ -1015,8 +1027,16 @@
                                 : scope === '90d'    ? (ec.lines90 || 0)
                                 : scope === '180d'   ? (ec.lines180 || 0)
                                 : ec.lines,
-                        linesAddedVal: scope === 'recent' ? (ec.linesAddedRecent || 0) : (ec.linesAdded || 0),
-                        linesRemovedVal: scope === 'recent' ? (ec.linesRemovedRecent || 0) : (ec.linesRemoved || 0),
+                        linesAddedVal: scope === 'recent' ? (ec.linesAddedRecent || 0)
+                                     : scope === '30d'    ? (ec.linesAdded30 || 0)
+                                     : scope === '90d'    ? (ec.linesAdded90 || 0)
+                                     : scope === '180d'   ? (ec.linesAdded180 || 0)
+                                     : (ec.linesAdded || 0),
+                        linesRemovedVal: scope === 'recent' ? (ec.linesRemovedRecent || 0)
+                                       : scope === '30d'    ? (ec.linesRemoved30 || 0)
+                                       : scope === '90d'    ? (ec.linesRemoved90 || 0)
+                                       : scope === '180d'   ? (ec.linesRemoved180 || 0)
+                                       : (ec.linesRemoved || 0),
                         raw: 0,
                         pct: 0,
                         blameVal: ec.blameLines || 0,
