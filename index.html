@@ -939,12 +939,16 @@
                 const key = devKey(c);
                 const parentKey = mergedAccounts.get(key);
                 if (!parentKey || (!ignoreExclusions && excludedDevs.has(parentKey))) continue;
-                if (!extras.has(parentKey)) extras.set(parentKey, { commits: 0, lines: 0, commitsRecent: 0, linesRecent: 0, score: 0, lastTs: 0, firstTs: 0 });
+                if (!extras.has(parentKey)) extras.set(parentKey, { commits: 0, lines: 0, linesAdded: 0, linesRemoved: 0, commitsRecent: 0, linesRecent: 0, linesAddedRecent: 0, linesRemovedRecent: 0, score: 0, lastTs: 0, firstTs: 0 });
                 const ex = extras.get(parentKey);
                 ex.commits += c.commits || 0;
                 ex.lines += c.lines || 0;
+                ex.linesAdded += c.linesAdded || 0;
+                ex.linesRemoved += c.linesRemoved || 0;
                 ex.commitsRecent += c.commitsRecent || 0;
                 ex.linesRecent += c.linesRecent || 0;
+                ex.linesAddedRecent += c.linesAddedRecent || 0;
+                ex.linesRemovedRecent += c.linesRemovedRecent || 0;
                 ex.score += c.score || 0;
                 if (c.lastTs) ex.lastTs = Math.max(ex.lastTs, c.lastTs);
                 if (c.firstTs) { if (!ex.firstTs || c.firstTs < ex.firstTs) ex.firstTs = c.firstTs; }
@@ -959,8 +963,12 @@
                         ...c,
                         commits: (c.commits || 0) + ex.commits,
                         lines: (c.lines || 0) + ex.lines,
+                        linesAdded: (c.linesAdded || 0) + (ex.linesAdded || 0),
+                        linesRemoved: (c.linesRemoved || 0) + (ex.linesRemoved || 0),
                         commitsRecent: (c.commitsRecent || 0) + ex.commitsRecent,
                         linesRecent: (c.linesRecent || 0) + ex.linesRecent,
+                        linesAddedRecent: (c.linesAddedRecent || 0) + (ex.linesAddedRecent || 0),
+                        linesRemovedRecent: (c.linesRemovedRecent || 0) + (ex.linesRemovedRecent || 0),
                         score: (c.score || 0) + ex.score,
                         lastTs: ex.lastTs > (c.lastTs || 0) ? ex.lastTs : c.lastTs,
                         firstTs: (c.firstTs || ex.firstTs) ? Math.min(c.firstTs || Infinity, ex.firstTs || Infinity) : 0,
@@ -969,6 +977,8 @@
                         c: ec,
                         commitsVal: scope === 'recent' ? ec.commitsRecent : ec.commits,
                         linesVal: scope === 'recent' ? ec.linesRecent : ec.lines,
+                        linesAddedVal: scope === 'recent' ? (ec.linesAddedRecent || 0) : (ec.linesAdded || 0),
+                        linesRemovedVal: scope === 'recent' ? (ec.linesRemovedRecent || 0) : (ec.linesRemoved || 0),
                         raw: 0,
                         pct: 0,
                     };
@@ -1275,6 +1285,8 @@
                 const tdLines = document.createElement('td');
                 tdLines.className = 'num';
                 tdLines.textContent = r.linesVal.toLocaleString();
+                if (r.linesAddedVal || r.linesRemovedVal)
+                    tdLines.title = `+${r.linesAddedVal.toLocaleString()} / −${r.linesRemovedVal.toLocaleString()}`;
 
                 const tdFirst = document.createElement('td');
                 tdFirst.appendChild(firstActiveStr(r.c.firstTs));
@@ -1974,8 +1986,9 @@
                 const r = active[idx];
                 domains.push({
                     path: p, rank: idx + 1, total: active.length, pct: r.pct,
-                    commitsVal: r.commitsVal, linesVal: r.linesVal, lastTs: r.c.lastTs,
-                    firstTs: r.c.firstTs || 0
+                    commitsVal: r.commitsVal, linesVal: r.linesVal,
+                    linesAddedVal: r.linesAddedVal || 0, linesRemovedVal: r.linesRemovedVal || 0,
+                    lastTs: r.c.lastTs, firstTs: r.c.firstTs || 0
                 });
             }
             const _pdd = personDomainsSortDir === 'asc' ? 1 : -1;
@@ -2086,6 +2099,8 @@
                 const tdL = document.createElement('td');
                 tdL.className = 'num';
                 tdL.textContent = d.linesVal.toLocaleString();
+                if (d.linesAddedVal || d.linesRemovedVal)
+                    tdL.title = `+${d.linesAddedVal.toLocaleString()} / −${d.linesRemovedVal.toLocaleString()}`;
 
                 const tdFirst_d = document.createElement('td');
                 tdFirst_d.appendChild(firstActiveStr(d.firstTs));

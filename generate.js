@@ -119,7 +119,9 @@ function main() {
     let st = authors.get(key);
     if (!st) {
       st = { name, email, commits: 0, commitsRecent: 0, lines: 0,
-        linesRecent: 0, lastTs: 0, firstTs: 0, score: 0 };
+        linesAdded: 0, linesRemoved: 0, linesRecent: 0,
+        linesAddedRecent: 0, linesRemovedRecent: 0,
+        lastTs: 0, firstTs: 0, score: 0 };
       authors.set(key, st);
     }
     return st;
@@ -163,7 +165,13 @@ function main() {
     for (const dir of ancestorDirs(filePath)) {
       const st = getStats(dir, cur.key, cur.name, cur.email);
       st.lines += churn;
-      if (inRecent) st.linesRecent += churn;
+      st.linesAdded += added;
+      st.linesRemoved += removed;
+      if (inRecent) {
+        st.linesRecent += churn;
+        st.linesAddedRecent += added;
+        st.linesRemovedRecent += removed;
+      }
       if (!seenDirs.has(dir)) {
         // count each commit at most once per folder
         seenDirs.add(dir);
@@ -198,7 +206,11 @@ function main() {
           commits: st.commits,
           commitsRecent: st.commitsRecent,
           lines: st.lines,
+          linesAdded: st.linesAdded,
+          linesRemoved: st.linesRemoved,
           linesRecent: st.linesRecent,
+          linesAddedRecent: st.linesAddedRecent,
+          linesRemovedRecent: st.linesRemovedRecent,
           lastTs: st.lastTs,
           firstTs: st.firstTs,
           score: Math.round(st.score * 10000) / 10000,
