@@ -1011,10 +1011,17 @@
 
             host.innerHTML = '';
 
+            host.appendChild(buildTabBar());
+
             if (currentTab === 'pinned') {
                 const title = document.createElement('h2');
                 title.className = 'path-title';
                 title.textContent = 'Pinned Folders';
+                host.appendChild(title);
+            } else if (currentTab === 'exclusions') {
+                const title = document.createElement('h2');
+                title.className = 'path-title';
+                title.textContent = 'Exclusions';
                 host.appendChild(title);
             } else if (currentTab !== 'people') {
                 host.appendChild(buildBreadcrumb(p));
@@ -1023,8 +1030,6 @@
                 title.textContent = p === '' ? displayName('') : p;
                 host.appendChild(title);
             }
-
-            host.appendChild(buildTabBar());
 
             if (currentTab === 'contributors') {
                 const { rows, sumC, sumL, scope } = computeRows(node);
@@ -1270,10 +1275,10 @@
             const totalManaged = excludedDevs.size + mergedAccounts.size;
             const excludedLabel = totalManaged > 0 ? `Exclusions (${totalManaged})` : 'Exclusions';
             for (const t of [
-                { id: 'contributors', label: 'Contributors' },
-                { id: 'domains', label: 'Domain Map' },
+                { id: 'contributors', label: 'Experts' },
+                { id: 'domains', label: 'Domains' },
                 { id: 'pinned', label: pinnedLabel },
-                { id: 'people', label: 'People' },
+                { id: 'people', label: 'Contributors' },
                 { id: 'exclusions', label: excludedLabel },
             ]) {
                 const btn = document.createElement('button');
@@ -1789,7 +1794,7 @@
 
             const title = document.createElement('h2');
             title.className = 'path-title';
-            title.textContent = 'People';
+            title.textContent = 'Contributors';
             host.appendChild(title);
 
             const recentLabel = `Recent (${data.recentDays}d)`;
