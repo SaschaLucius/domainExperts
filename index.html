@@ -939,7 +939,7 @@
                 const key = devKey(c);
                 const parentKey = mergedAccounts.get(key);
                 if (!parentKey || (!ignoreExclusions && excludedDevs.has(parentKey))) continue;
-                if (!extras.has(parentKey)) extras.set(parentKey, { commits: 0, lines: 0, commitsRecent: 0, linesRecent: 0, score: 0, lastTs: 0 });
+                if (!extras.has(parentKey)) extras.set(parentKey, { commits: 0, lines: 0, commitsRecent: 0, linesRecent: 0, score: 0, lastTs: 0, firstTs: 0 });
                 const ex = extras.get(parentKey);
                 ex.commits += c.commits || 0;
                 ex.lines += c.lines || 0;
@@ -947,6 +947,7 @@
                 ex.linesRecent += c.linesRecent || 0;
                 ex.score += c.score || 0;
                 if (c.lastTs) ex.lastTs = Math.max(ex.lastTs, c.lastTs);
+                if (c.firstTs) { if (!ex.firstTs || c.firstTs < ex.firstTs) ex.firstTs = c.firstTs; }
             }
 
             const rows = node.contributors
@@ -962,6 +963,7 @@
                         linesRecent: (c.linesRecent || 0) + ex.linesRecent,
                         score: (c.score || 0) + ex.score,
                         lastTs: ex.lastTs > (c.lastTs || 0) ? ex.lastTs : c.lastTs,
+                        firstTs: (c.firstTs || ex.firstTs) ? Math.min(c.firstTs || Infinity, ex.firstTs || Infinity) : 0,
                     } : c;
                     return {
                         c: ec,
@@ -1181,6 +1183,11 @@
                         if (a.c.lastTs && !b.c.lastTs) return -1;
                         return dir * ((a.c.lastTs || 0) - (b.c.lastTs || 0));
                     }
+                    case 'firstactive': {
+                        if (!a.c.firstTs && b.c.firstTs) return 1;
+                        if (a.c.firstTs && !b.c.firstTs) return -1;
+                        return dir * ((a.c.firstTs || 0) - (b.c.firstTs || 0));
+                    }
                     default: return dir * (a.raw - b.raw); // 'share'
                 }
             });
@@ -1191,7 +1198,7 @@
 
             // Fixed column widths so layout doesn't shift when switching metrics
             const colg = document.createElement('colgroup');
-            for (const w of ['36px', '', '38%', '90px', '90px', '108px']) {
+            for (const w of ['36px', '', '38%', '90px', '90px', '108px', '108px']) {
                 const col = document.createElement('col');
                 if (w) col.style.width = w;
                 colg.appendChild(col);
@@ -1206,6 +1213,7 @@
                 { id: 'share', label: 'Share', cls: 'bar-cell' },
                 { id: 'commits', label: 'Commits', cls: 'num' },
                 { id: 'lines', label: 'Lines', cls: 'num' },
+                { id: 'firstactive', label: 'First active', cls: '' },
                 { id: 'lastactive', label: 'Last active', cls: '' },
             ];
             for (const col of cols) {
@@ -1268,6 +1276,9 @@
                 tdLines.className = 'num';
                 tdLines.textContent = r.linesVal.toLocaleString();
 
+                const tdFirst = document.createElement('td');
+                tdFirst.appendChild(firstActiveStr(r.c.firstTs));
+
                 const tdLast = document.createElement('td');
                 tdLast.appendChild(lastActive(r.c.lastTs));
 
@@ -1276,6 +1287,7 @@
                 tr.appendChild(tdBar);
                 tr.appendChild(tdCommits);
                 tr.appendChild(tdLines);
+                tr.appendChild(tdFirst);
                 tr.appendChild(tdLast);
                 tbody.appendChild(tr);
             }
@@ -1297,6 +1309,18 @@
             span.textContent = rel;
             span.title = d.toLocaleDateString();
             if (days > 365) span.className = 'stale';
+            return span;
+        }
+
+        function firstActiveStr(ts) {
+            const span = document.createElement('span');
+            if (!ts) { span.textContent = '—'; return span; }
+            const d = new Date(ts * 1000);
+            const years = (data.nowTs - ts) / (365.25 * 86400);
+            span.textContent = years >= 2
+                ? d.getFullYear().toString()
+                : d.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+            span.title = d.toLocaleDateString();
             return span;
         }
 
@@ -1950,7 +1974,8 @@
                 const r = active[idx];
                 domains.push({
                     path: p, rank: idx + 1, total: active.length, pct: r.pct,
-                    commitsVal: r.commitsVal, linesVal: r.linesVal, lastTs: r.c.lastTs
+                    commitsVal: r.commitsVal, linesVal: r.linesVal, lastTs: r.c.lastTs,
+                    firstTs: r.c.firstTs || 0
                 });
             }
             const _pdd = personDomainsSortDir === 'asc' ? 1 : -1;
@@ -1960,6 +1985,7 @@
                     case 'share': return _pdd * (a.pct - b.pct);
                     case 'commits': return _pdd * (a.commitsVal - b.commitsVal);
                     case 'lines': return _pdd * (a.linesVal - b.linesVal);
+                    case 'firstactive': return _pdd * ((a.firstTs || 0) - (b.firstTs || 0));
                     case 'lastactive': return _pdd * ((a.lastTs || 0) - (b.lastTs || 0));
                     default: return _pdd * (a.rank - b.rank) || b.pct - a.pct || a.path.localeCompare(b.path);
                 }
@@ -1986,7 +2012,7 @@
             table.style.tableLayout = 'fixed';
 
             const colg = document.createElement('colgroup');
-            for (const w of ['', '52px', '36%', '90px', '90px', '108px']) {
+            for (const w of ['', '52px', '36%', '90px', '90px', '108px', '108px']) {
                 const col = document.createElement('col');
                 if (w) col.style.width = w;
                 colg.appendChild(col);
@@ -2001,6 +2027,7 @@
                 { id: 'share', label: 'Share', cls: 'bar-cell' },
                 { id: 'commits', label: 'Commits', cls: 'num' },
                 { id: 'lines', label: 'Lines', cls: 'num' },
+                { id: 'firstactive', label: 'First active', cls: '' },
                 { id: 'lastactive', label: 'Last active', cls: '' },
             ]) {
                 const th = document.createElement('th');
@@ -2010,7 +2037,7 @@
                 if (id === personDomainsSortCol) th.classList.add(personDomainsSortDir === 'asc' ? 'sort-asc' : 'sort-desc');
                 th.addEventListener('click', () => {
                     if (personDomainsSortCol === id) personDomainsSortDir = personDomainsSortDir === 'desc' ? 'asc' : 'desc';
-                    else { personDomainsSortCol = id; personDomainsSortDir = id === 'folder' ? 'asc' : (id === 'rank' ? 'asc' : 'desc'); }
+                    else { personDomainsSortCol = id; personDomainsSortDir = id === 'folder' ? 'asc' : (id === 'rank' || id === 'firstactive' ? 'asc' : 'desc'); }
                     renderDetails(currentPath);
                 });
                 hdrRow.appendChild(th);
@@ -2060,10 +2087,13 @@
                 tdL.className = 'num';
                 tdL.textContent = d.linesVal.toLocaleString();
 
+                const tdFirst_d = document.createElement('td');
+                tdFirst_d.appendChild(firstActiveStr(d.firstTs));
+
                 const tdLast = document.createElement('td');
                 tdLast.appendChild(lastActive(d.lastTs));
 
-                tr.append(tdP, tdRank, tdBar, tdC, tdL, tdLast);
+                tr.append(tdP, tdRank, tdBar, tdC, tdL, tdFirst_d, tdLast);
                 tbody.appendChild(tr);
             }
             table.appendChild(tbody);

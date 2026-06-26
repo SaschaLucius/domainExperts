@@ -119,7 +119,7 @@ function main() {
     let st = authors.get(key);
     if (!st) {
       st = { name, email, commits: 0, commitsRecent: 0, lines: 0,
-        linesRecent: 0, lastTs: 0, score: 0 };
+        linesRecent: 0, lastTs: 0, firstTs: 0, score: 0 };
       authors.set(key, st);
     }
     return st;
@@ -170,6 +170,7 @@ function main() {
         st.commits += 1;
         if (inRecent) st.commitsRecent += 1;
         st.score += weight;
+        if (!st.firstTs || cur.ts < st.firstTs) st.firstTs = cur.ts;
       }
       if (cur.ts > st.lastTs) st.lastTs = cur.ts;
     }
@@ -199,6 +200,7 @@ function main() {
           lines: st.lines,
           linesRecent: st.linesRecent,
           lastTs: st.lastTs,
+          firstTs: st.firstTs,
           score: Math.round(st.score * 10000) / 10000,
         });
       }
