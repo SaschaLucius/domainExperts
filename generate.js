@@ -24,12 +24,14 @@ const path = require('path');
 
 // ---- CLI parsing ----------------------------------------------------------
 function parseArgs(argv) {
-  const opts = { repo: '.', out: 'contributions.json', recentDays: 365, halfLifeDays: 365 };
+  const opts = { repo: '.', out: 'contributions.json', recentDays: 365, halfLifeDays: 365, skipBlame: false, maxBlameFiles: 5000 };
   const positional = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--recent-days') opts.recentDays = parseFloat(argv[++i]);
     else if (a === '--half-life') opts.halfLifeDays = parseFloat(argv[++i]);
+    else if (a === '--skip-blame') opts.skipBlame = true;
+    else if (a === '--max-blame-files') opts.maxBlameFiles = parseInt(argv[++i], 10) || 5000;
     else if (a === '-h' || a === '--help') { printHelp(); process.exit(0); }
     else positional.push(a);
   }
@@ -51,9 +53,11 @@ Arguments:
   outFile    Output JSON path (default: "contributions.json")
 
 Options:
-  --recent-days N   Window (days) for "recent" metrics (default: 365)
-  --half-life N     Half-life (days) for the recency-weighted score (default: 365)
-  -h, --help        Show this help
+  --recent-days N      Window (days) for "recent" metrics (default: 365)
+  --half-life N        Half-life (days) for the recency-weighted score (default: 365)
+  --skip-blame         Skip the blame pass (faster; omits live-line ownership data)
+  --max-blame-files N  Max files to run git blame on (default: 5000)
+  -h, --help           Show this help
 `);
 }
 
@@ -83,6 +87,97 @@ function resolveRename(p) {
   const idx = p.indexOf(' => ');
   if (idx !== -1) p = p.slice(idx + 4);
   return p.replace(/\/{2,}/g, '/').replace(/^\//, '');
+}
+
+// ---- blame pass ----------------------------------------------------------
+
+// Run git blame --porcelain on one file and accumulate per-email line counts
+// into blameTree (Map<dir, Map<email, lineCount>>).
+function blameOneFile(repo, filePath, blameTree, cb) {
+  const dirs = ancestorDirs(filePath);
+  const child = spawn('git',
+    ['-C', repo, '-c', 'core.quotePath=false', 'blame', '--porcelain', '--', filePath],
+    { stdio: ['ignore', 'pipe', 'pipe'] });
+  const rl = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
+
+  const shaEmailCache = new Map();
+  let curSha = null;
+  let curEmail = null;
+  let done = false;
+
+  rl.on('line', (line) => {
+    if (!line) return;
+    if (line.charCodeAt(0) === 9 /* \t = content line */) {
+      if (curEmail && curEmail !== 'not.committed.yet') {
+        for (const dir of dirs) {
+          let m = blameTree.get(dir);
+          if (!m) { m = new Map(); blameTree.set(dir, m); }
+          m.set(curEmail, (m.get(curEmail) || 0) + 1);
+        }
+      }
+      return;
+    }
+    if (line.startsWith('author-mail ')) {
+      const raw = line.slice(12).trim();
+      curEmail = (raw.startsWith('<') ? raw.slice(1, -1) : raw).toLowerCase();
+      if (curSha) shaEmailCache.set(curSha, curEmail);
+      return;
+    }
+    if (line.length >= 40 && /^[0-9a-f]{40} /.test(line)) {
+      curSha = line.slice(0, 40);
+      curEmail = shaEmailCache.get(curSha) || null;
+    }
+  });
+
+  function finish() { if (!done) { done = true; cb(); } }
+  rl.on('close', finish);
+  child.on('close', finish);
+  child.stderr.resume();
+  child.on('error', finish);
+}
+
+// Enumerate all tracked files (for folder file counts), then blame up to
+// maxFiles of them for per-author live-line ownership.
+function runBlamePass(repo, maxFiles, callback) {
+  const lsChild = spawn('git',
+    ['-C', repo, '-c', 'core.quotePath=false', 'ls-files'],
+    { stdio: ['ignore', 'pipe', 'pipe'] });
+  const files = [];
+  const lsRl = readline.createInterface({ input: lsChild.stdout, crlfDelay: Infinity });
+  lsRl.on('line', (l) => { if (l) files.push(l); });
+  lsRl.on('close', () => {
+    const totalFilesTree = new Map();
+    for (const file of files) {
+      for (const dir of ancestorDirs(file)) {
+        totalFilesTree.set(dir, (totalFilesTree.get(dir) || 0) + 1);
+      }
+    }
+
+    const toBlame = files.slice(0, maxFiles);
+    if (toBlame.length < files.length) {
+      console.error(`Blame: processing first ${toBlame.length} of ${files.length} files ` +
+        `(raise limit with --max-blame-files N).`);
+    }
+
+    const blameTree = new Map();
+    let idx = 0;
+    function next() {
+      if (idx >= toBlame.length) {
+        if (toBlame.length > 0) process.stderr.write('\n');
+        callback({ blameTree, totalFilesTree });
+        return;
+      }
+      const file = toBlame[idx++];
+      if (idx % 100 === 0 || idx === toBlame.length) {
+        process.stderr.write(`\rBlame: ${idx}/${toBlame.length} files...`);
+      }
+      blameOneFile(repo, file, blameTree, next);
+    }
+    next();
+  });
+  lsChild.stderr.resume();
+  lsChild.on('error', () => callback(null));
+  lsChild.on('close', (code) => { if (code !== 0) callback(null); });
 }
 
 // ---- main -----------------------------------------------------------------
@@ -203,10 +298,14 @@ function main() {
       if (stderr.trim()) console.error(stderr.trim());
       process.exit(exitCode || 1);
     }
-    writeOutput();
+    if (opts.skipBlame) {
+      writeOutput(null);
+    } else {
+      runBlamePass(opts.repo, opts.maxBlameFiles, writeOutput);
+    }
   }
 
-  function writeOutput() {
+  function writeOutput(blameData) {
     const nodes = [];
     for (const [dir, authors] of tree) {
       const contributors = [];
@@ -233,7 +332,33 @@ function main() {
           score: Math.round(st.score * 10000) / 10000,
         });
       }
-      nodes.push({ path: dir, contributors });
+
+      let totalFiles = 0, totalLines = 0;
+      if (blameData) {
+        totalFiles = blameData.totalFilesTree.get(dir) || 0;
+        const bm = blameData.blameTree.get(dir);
+        if (bm) {
+          const emailToC = new Map(contributors.map(c => [c.email, c]));
+          for (const [email, lines] of bm) {
+            totalLines += lines;
+            const c = emailToC.get(email);
+            if (c) {
+              c.blameLines = lines;
+            } else if (email && email !== 'not.committed.yet') {
+              contributors.push({ name: '', email, commits: 0, commitsRecent: 0,
+                lines: 0, linesAdded: 0, linesRemoved: 0, linesRecent: 0,
+                linesAddedRecent: 0, linesRemovedRecent: 0,
+                commits30: 0, commits90: 0, commits180: 0,
+                lines30: 0, lines90: 0, lines180: 0,
+                lastTs: 0, firstTs: 0, score: 0, blameLines: lines });
+            }
+          }
+        }
+      }
+
+      const node = { path: dir, contributors };
+      if (blameData) { node.totalFiles = totalFiles; node.totalLines = totalLines; }
+      nodes.push(node);
     }
     nodes.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 
@@ -244,11 +369,13 @@ function main() {
       halfLifeDays: opts.halfLifeDays,
       repoName: path.basename(path.resolve(opts.repo)),
       totalCommits,
+      hasBlame: !!blameData,
       nodes,
     };
     fs.writeFileSync(opts.out, JSON.stringify(output));
     console.error(`Wrote ${opts.out}: ${nodes.length} folders, ` +
-      `${totalCommits} commits, repo "${output.repoName}"`);
+      `${totalCommits} commits, repo "${output.repoName}"` +
+      (blameData ? ', blame data included' : ''));
   }
 
   rl.on('close', () => { parsed = true; finish(); });

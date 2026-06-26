@@ -584,6 +584,7 @@
                     <button class="active" data-m="contributors">Contributors</button>
                     <button data-m="commits">Commits</button>
                     <button data-m="lines">Lines</button>
+                    <button data-m="files" hidden>Files</button>
                 </div>
             </div>
         </aside>
@@ -611,7 +612,7 @@
         let childrenByPath = new Map();  // parentPath -> [childPath,...]
         let treeIndex = new Map();       // path -> { row, expand, syncPin }
         let currentPath = null;
-        let currentMetric = 'commits';   // 'commits' | 'combined' | 'recency'
+        let currentMetric = 'commits';   // 'commits' | 'combined' | 'recency' | 'blame'
         let treeMetric = 'contributors'; // 'contributors' | 'commits' | 'lines'
         let currentScope = 'all';        // 'all' | 'recent' | '30d' | '90d' | '180d'
         let currentSortCol = 'share';    // 'contributor' | 'share' | 'commits' | 'lines' | 'lastactive'
@@ -780,6 +781,8 @@
             for (const btn of tmBar.querySelectorAll('button')) {
                 btn.classList.toggle('active', btn.dataset.m === 'contributors');
             }
+            const filesBtn = tmBar.querySelector('button[data-m="files"]');
+            if (filesBtn) filesBtn.hidden = !data.hasBlame;
 
             // select & reveal root
             go('');
@@ -805,6 +808,7 @@
             const node = nodesByPath.get(p);
             if (!node) return 0;
             if (treeMetric === 'contributors') return node.contributors.length;
+            if (treeMetric === 'files') return node.totalFiles || 0;
             let sum = 0;
             for (const c of node.contributors) sum += (treeMetric === 'commits' ? c.commits : c.lines) || 0;
             return sum;
@@ -939,7 +943,7 @@
                 const key = devKey(c);
                 const parentKey = mergedAccounts.get(key);
                 if (!parentKey || (!ignoreExclusions && excludedDevs.has(parentKey))) continue;
-                if (!extras.has(parentKey)) extras.set(parentKey, { commits: 0, lines: 0, linesAdded: 0, linesRemoved: 0, commitsRecent: 0, linesRecent: 0, linesAddedRecent: 0, linesRemovedRecent: 0, commits30: 0, commits90: 0, commits180: 0, lines30: 0, lines90: 0, lines180: 0, score: 0, lastTs: 0, firstTs: 0 });
+                if (!extras.has(parentKey)) extras.set(parentKey, { commits: 0, lines: 0, linesAdded: 0, linesRemoved: 0, commitsRecent: 0, linesRecent: 0, linesAddedRecent: 0, linesRemovedRecent: 0, commits30: 0, commits90: 0, commits180: 0, lines30: 0, lines90: 0, lines180: 0, blameLines: 0, score: 0, lastTs: 0, firstTs: 0 });
                 const ex = extras.get(parentKey);
                 ex.commits += c.commits || 0;
                 ex.lines += c.lines || 0;
@@ -955,6 +959,7 @@
                 ex.lines30 += c.lines30 || 0;
                 ex.lines90 += c.lines90 || 0;
                 ex.lines180 += c.lines180 || 0;
+                ex.blameLines += c.blameLines || 0;
                 ex.score += c.score || 0;
                 if (c.lastTs) ex.lastTs = Math.max(ex.lastTs, c.lastTs);
                 if (c.firstTs) { if (!ex.firstTs || c.firstTs < ex.firstTs) ex.firstTs = c.firstTs; }
@@ -981,6 +986,7 @@
                         lines30: (c.lines30 || 0) + (ex.lines30 || 0),
                         lines90: (c.lines90 || 0) + (ex.lines90 || 0),
                         lines180: (c.lines180 || 0) + (ex.lines180 || 0),
+                        blameLines: (c.blameLines || 0) + (ex.blameLines || 0),
                         score: (c.score || 0) + ex.score,
                         lastTs: ex.lastTs > (c.lastTs || 0) ? ex.lastTs : c.lastTs,
                         firstTs: (c.firstTs || ex.firstTs) ? Math.min(c.firstTs || Infinity, ex.firstTs || Infinity) : 0,
@@ -1001,21 +1007,23 @@
                         linesRemovedVal: scope === 'recent' ? (ec.linesRemovedRecent || 0) : (ec.linesRemoved || 0),
                         raw: 0,
                         pct: 0,
+                        blameVal: ec.blameLines || 0,
                     };
                 });
 
-            let sumC = 0, sumL = 0, sumScore = 0;
-            for (const r of rows) { sumC += r.commitsVal; sumL += r.linesVal; sumScore += r.c.score || 0; }
-            return { rows, sumC, sumL, sumScore };
+            let sumC = 0, sumL = 0, sumScore = 0, sumBlame = 0;
+            for (const r of rows) { sumC += r.commitsVal; sumL += r.linesVal; sumScore += r.c.score || 0; sumBlame += r.blameVal; }
+            return { rows, sumC, sumL, sumScore, sumBlame };
         }
 
         function computeRows(node) {
-            const scope = (currentMetric === 'recency') ? 'all' : currentScope;
-            const { rows, sumC, sumL, sumScore } = buildScopedRows(node, scope);
+            const scope = (currentMetric === 'recency' || currentMetric === 'blame') ? 'all' : currentScope;
+            const { rows, sumC, sumL, sumScore, sumBlame } = buildScopedRows(node, scope);
 
             for (const r of rows) {
                 if (currentMetric === 'commits') r.raw = r.commitsVal;
                 else if (currentMetric === 'recency') r.raw = r.c.score;
+                else if (currentMetric === 'blame') r.raw = r.blameVal;
                 else {
                     const sc = sumC > 0 ? r.commitsVal / sumC : 0;
                     const sl = sumL > 0 ? r.linesVal / sumL : 0;
@@ -1029,7 +1037,7 @@
             for (const r of rows) r.pct = denom > 0 ? (r.raw / denom * 100) : 0;
 
             rows.sort((a, b) => (b.raw - a.raw) || (b.commitsVal - a.commitsVal));
-            return { rows, sumC, sumL, scope };
+            return { rows, sumC, sumL, scope, sumBlame };
         }
 
         // ---- detail rendering -----------------------------------------------------
@@ -1064,21 +1072,31 @@
             }
 
             if (currentTab === 'contributors') {
-                const { rows, sumC, sumL, scope } = computeRows(node);
+                const { rows, sumC, sumL, scope, sumBlame } = computeRows(node);
 
                 host.appendChild(buildControls(recentLabel));
 
+                if (node.totalFiles !== undefined) {
+                    const folderStats = document.createElement('div');
+                    folderStats.className = 'summary';
+                    folderStats.style.marginBottom = '6px';
+                    folderStats.innerHTML = `<b>${node.totalFiles.toLocaleString()}</b> tracked files \u00b7 <b>${(node.totalLines || 0).toLocaleString()}</b> live lines`;
+                    host.appendChild(folderStats);
+                }
+
                 const summary = document.createElement('div');
                 summary.className = 'summary';
-                const activeRows = rows.filter((r) => r.commitsVal > 0 || currentMetric === 'recency');
+                const activeRows = rows.filter((r) => r.commitsVal > 0 || currentMetric === 'recency' || currentMetric === 'blame');
                 const scopeLabel = scope === 'recent' ? recentLabel
                     : scope === '30d' ? 'last 30d' : scope === '90d' ? 'last 90d'
                     : scope === '180d' ? 'last 180d' : '';
-                summary.innerHTML =
-                    `<b>${activeRows.length}</b> contributor${activeRows.length === 1 ? '' : 's'} · ` +
-                    `<b>${sumC.toLocaleString()}</b> commits · ` +
-                    `<b>${sumL.toLocaleString()}</b> lines changed` +
-                    (scopeLabel ? ` · ${scopeLabel}` : '');
+                const summaryStr = currentMetric === 'blame'
+                    ? `<b>${activeRows.length}</b> contributor${activeRows.length === 1 ? '' : 's'} · <b>${sumBlame.toLocaleString()}</b> live lines`
+                    : `<b>${activeRows.length}</b> contributor${activeRows.length === 1 ? '' : 's'} · ` +
+                      `<b>${sumC.toLocaleString()}</b> commits · ` +
+                      `<b>${sumL.toLocaleString()}</b> lines changed` +
+                      (scopeLabel ? ` · ${scopeLabel}` : '');
+                summary.innerHTML = summaryStr;
                 host.appendChild(summary);
 
                 const table = buildTable(rows);
@@ -1110,6 +1128,8 @@
                     note.textContent = `"Commits + Lines" = ${W_COMMITS} × commit share + ${W_LINES} × line share.`;
                 } else if (currentMetric === 'recency') {
                     note.textContent = `Recency-weighted: each commit decays with a ${data.halfLifeDays}-day half-life (scope toggle disabled).`;
+                } else if (currentMetric === 'blame') {
+                    note.textContent = 'Blame: current lines of code attributed to each author via git blame (scope toggle disabled).';
                 } else {
                     note.textContent = 'Commits: a commit is counted once per folder it touched (rolled up over the subtree).';
                 }
@@ -1163,11 +1183,14 @@
             const wrap = document.createElement('div');
             wrap.className = 'controls';
 
-            const metricGroup = segmented('Metric', [
+            const metricButtons = [
                 { id: 'commits', label: 'Commits' },
                 { id: 'combined', label: 'Commits + Lines' },
                 { id: 'recency', label: 'Recency-weighted' },
-            ], currentMetric, (id) => { currentMetric = id; renderDetails(currentPath); });
+            ];
+            if (data.hasBlame) metricButtons.push({ id: 'blame', label: 'Blame' });
+            const metricGroup = segmented('Metric', metricButtons, currentMetric,
+                (id) => { currentMetric = id; renderDetails(currentPath); });
 
             const scopeButtons = [
                 { id: 'all', label: 'All time' },
@@ -1178,7 +1201,7 @@
             ];
             const scopeGroup = segmented('Time scope', scopeButtons, currentScope,
                 (id) => { currentScope = id; renderDetails(currentPath); },
-                currentMetric === 'recency');
+                currentMetric === 'recency' || currentMetric === 'blame');
 
             wrap.appendChild(metricGroup);
             wrap.appendChild(scopeGroup);
@@ -1248,7 +1271,7 @@
                 { id: 'contributor', label: 'Contributor', cls: '' },
                 { id: 'share', label: 'Share', cls: 'bar-cell' },
                 { id: 'commits', label: 'Commits', cls: 'num' },
-                { id: 'lines', label: 'Lines', cls: 'num' },
+                { id: 'lines', label: currentMetric === 'blame' ? 'Live lines' : 'Lines', cls: 'num' },
                 { id: 'firstactive', label: 'First active', cls: '' },
                 { id: 'lastactive', label: 'Last active', cls: '' },
             ];
@@ -1280,7 +1303,8 @@
 
             let rank = 0;
             for (const r of rows) {
-                if (r.commitsVal === 0 && currentMetric !== 'recency') continue;
+                if (currentMetric === 'blame' && r.blameVal === 0) continue;
+                if (currentMetric !== 'recency' && currentMetric !== 'blame' && r.commitsVal === 0) continue;
                 if (currentMetric === 'recency' && r.c.score === 0) continue;
                 rank++;
                 const tr = document.createElement('tr');
@@ -1310,8 +1334,8 @@
 
                 const tdLines = document.createElement('td');
                 tdLines.className = 'num';
-                tdLines.textContent = r.linesVal.toLocaleString();
-                if (r.linesAddedVal || r.linesRemovedVal)
+                tdLines.textContent = (currentMetric === 'blame' ? r.blameVal : r.linesVal).toLocaleString();
+                if (currentMetric !== 'blame' && (r.linesAddedVal || r.linesRemovedVal))
                     tdLines.title = `+${r.linesAddedVal.toLocaleString()} / −${r.linesRemovedVal.toLocaleString()}`;
 
                 const tdFirst = document.createElement('td');
