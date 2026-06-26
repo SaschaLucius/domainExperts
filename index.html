@@ -1058,8 +1058,20 @@
                     note.textContent = 'Commits: a commit is counted once per folder it touched (rolled up over the subtree).';
                 }
                 host.appendChild(note);
-            } else if (currentTab === 'domains') {
-                renderDomainMapTab(p, host, recentLabel);
+
+                const sfKids = (childrenByPath.get(p) || []).filter(k => nodesByPath.has(k));
+                if (sfKids.length > 0) {
+                    const sfExperts = sfKids.map(k => {
+                        const ex = topExpert(nodesByPath.get(k));
+                        return { path: k, contributor: ex ? ex.contributor : null, pct: ex ? ex.pct : 0 };
+                    });
+                    const sfTitle = document.createElement('p');
+                    sfTitle.className = 'section-title';
+                    sfTitle.style.marginTop = '24px';
+                    sfTitle.textContent = 'Subfolder experts';
+                    host.appendChild(sfTitle);
+                    host.appendChild(buildSubfolderTable(sfExperts));
+                }
             } else if (currentTab === 'pinned') {
                 renderPinnedTab(host, recentLabel);
             } else if (currentTab === 'exclusions') {
@@ -1276,7 +1288,6 @@
             const excludedLabel = totalManaged > 0 ? `Exclusions (${totalManaged})` : 'Exclusions';
             for (const t of [
                 { id: 'contributors', label: 'Experts' },
-                { id: 'domains', label: 'Domains' },
                 { id: 'pinned', label: pinnedLabel },
                 { id: 'people', label: 'Contributors' },
                 { id: 'exclusions', label: excludedLabel },
@@ -1301,54 +1312,6 @@
             const { rows } = computeRows(node);
             const active = rows.filter(r => currentMetric === 'recency' ? r.c.score > 0 : r.commitsVal > 0);
             return active.length > 0 ? { contributor: active[0].c, pct: active[0].pct } : null;
-        }
-
-        function renderDomainMapTab(p, host, recentLabel) {
-            host.appendChild(buildControls(recentLabel));
-
-            const kids = (childrenByPath.get(p) || []).filter(k => nodesByPath.has(k));
-
-            if (kids.length === 0) {
-                const msg = document.createElement('div');
-                msg.className = 'empty';
-                msg.style.height = '160px';
-                msg.textContent = 'No subfolders at this level.';
-                host.appendChild(msg);
-                return;
-            }
-
-            const sfExperts = kids.map(k => {
-                const ex = topExpert(nodesByPath.get(k));
-                return { path: k, contributor: ex ? ex.contributor : null, pct: ex ? ex.pct : 0 };
-            });
-
-            const total = kids.length;
-            const expertMap = new Map();
-            for (const sf of sfExperts) {
-                if (!sf.contributor) continue;
-                const key = sf.contributor.email || sf.contributor.name || '?';
-                if (!expertMap.has(key)) expertMap.set(key, { c: sf.contributor, paths: [] });
-                expertMap.get(key).paths.push(sf.path);
-            }
-            const expertList = [...expertMap.values()].sort((a, b) => b.paths.length - a.paths.length);
-
-            const sections = document.createElement('div');
-            sections.className = 'domain-sections';
-
-            const h1 = document.createElement('p');
-            h1.className = 'section-title';
-            h1.textContent = 'Expert coverage';
-            sections.appendChild(h1);
-            sections.appendChild(buildCoverageTable(expertList, total));
-
-            const h2el = document.createElement('p');
-            h2el.className = 'section-title';
-            h2el.style.marginTop = '20px';
-            h2el.textContent = 'Subfolder breakdown';
-            sections.appendChild(h2el);
-            sections.appendChild(buildSubfolderTable(sfExperts));
-
-            host.appendChild(sections);
         }
 
         // ---- tab 3: pinned folders ------------------------------------------------
