@@ -637,6 +637,7 @@
         let exclusionsFilterQ = '';       // live filter text in Exclusions tab
         let ignoreExclusions = false;     // temporarily show excluded devs (merges still apply)
         let currentLinesView = 'changed'; // 'changed' | 'added' | 'removed'
+        let contributorsExpanded = false; // expand/collapse state of the contributors list
 
         // ---- exclusion persistence -----------------------------------------------
         function storageKey() {
@@ -781,6 +782,7 @@
             currentMetric = 'commits';
             currentScope = 'all';
             currentLinesView = 'changed';
+            contributorsExpanded = false;
 
             // restore saved exclusions for this repo
             loadExclusions();
@@ -1135,19 +1137,20 @@
                 const allTbodyRows = Array.from(table.querySelector('tbody').rows);
                 const EXPERT_LIMIT = 3;
                 if (allTbodyRows.length > EXPERT_LIMIT) {
-                    for (let i = EXPERT_LIMIT; i < allTbodyRows.length; i++) allTbodyRows[i].hidden = true;
+                    for (let i = EXPERT_LIMIT; i < allTbodyRows.length; i++) allTbodyRows[i].hidden = !contributorsExpanded;
                 }
                 host.appendChild(table);
 
                 if (allTbodyRows.length > EXPERT_LIMIT) {
-                    let expanded = false;
                     const expandBtn = document.createElement('button');
-                    expandBtn.textContent = `Show all ${allTbodyRows.length} contributors ▼`;
+                    expandBtn.textContent = contributorsExpanded
+                        ? 'Show fewer ▲'
+                        : `Show all ${allTbodyRows.length} contributors ▼`;
                     expandBtn.style.cssText = 'font-size:12px;color:var(--accent);background:none;border:none;cursor:pointer;padding:4px 0 8px;display:block;';
                     expandBtn.addEventListener('click', () => {
-                        expanded = !expanded;
-                        for (let i = EXPERT_LIMIT; i < allTbodyRows.length; i++) allTbodyRows[i].hidden = !expanded;
-                        expandBtn.textContent = expanded
+                        contributorsExpanded = !contributorsExpanded;
+                        for (let i = EXPERT_LIMIT; i < allTbodyRows.length; i++) allTbodyRows[i].hidden = !contributorsExpanded;
+                        expandBtn.textContent = contributorsExpanded
                             ? 'Show fewer ▲'
                             : `Show all ${allTbodyRows.length} contributors ▼`;
                     });
