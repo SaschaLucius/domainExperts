@@ -736,6 +736,11 @@
 
             for (const node of data.nodes) nodesByPath.set(node.path, node);
 
+            // Auto-detect blame data presence when the hasBlame flag is absent (older JSON).
+            if (!('hasBlame' in data)) {
+                data.hasBlame = data.nodes.some(n => n.totalFiles !== undefined);
+            }
+
             // Derive parent → children from the set of folder paths.
             for (const node of data.nodes) {
                 const p = node.path;
@@ -749,10 +754,10 @@
             }
 
             // header meta
-            const gen = new Date(data.generatedAt * 1000);
+            const genTs = data.generatedAt || data.nowTs;
+            const genStr = genTs ? ` · generated ${new Date(genTs * 1000).toLocaleDateString()}` : '';
             document.getElementById('repo-meta').textContent =
-                `${data.repoName || 'repo'} · ${data.totalCommits.toLocaleString()} commits · ` +
-                `generated ${gen.toLocaleDateString()}`;
+                `${data.repoName || 'repo'} · ${(data.totalCommits || 0).toLocaleString()} commits${genStr}`;
 
             // build tree
             const treeRoot = document.getElementById('tree-root');
@@ -1047,7 +1052,7 @@
             host.hidden = false;
 
             const node = nodesByPath.get(p);
-            const recentLabel = `Recent (${data.recentDays}d)`;
+            const recentLabel = `Recent (${data.recentDays || 365}d)`;
 
             host.innerHTML = '';
 
@@ -1127,7 +1132,7 @@
                 if (currentMetric === 'combined') {
                     note.textContent = `"Commits + Lines" = ${W_COMMITS} × commit share + ${W_LINES} × line share.`;
                 } else if (currentMetric === 'recency') {
-                    note.textContent = `Recency-weighted: each commit decays with a ${data.halfLifeDays}-day half-life (scope toggle disabled).`;
+                    note.textContent = `Recency-weighted: each commit decays with a ${data.halfLifeDays || 365}-day half-life (scope toggle disabled).`;
                 } else if (currentMetric === 'blame') {
                     note.textContent = 'Blame: current lines of code attributed to each author via git blame (scope toggle disabled).';
                 } else {
@@ -1361,7 +1366,8 @@
         function lastActive(ts) {
             const span = document.createElement('span');
             if (!ts) { span.textContent = '—'; return span; }
-            const days = Math.floor((data.nowTs - ts) / 86400);
+            const nowTs = data.nowTs || Math.floor(Date.now() / 1000);
+            const days = Math.floor((nowTs - ts) / 86400);
             let rel;
             if (days <= 0) rel = 'today';
             else if (days < 30) rel = days + 'd ago';
@@ -1378,7 +1384,8 @@
             const span = document.createElement('span');
             if (!ts) { span.textContent = '—'; return span; }
             const d = new Date(ts * 1000);
-            const years = (data.nowTs - ts) / (365.25 * 86400);
+            const nowTs = data.nowTs || Math.floor(Date.now() / 1000);
+            const years = (nowTs - ts) / (365.25 * 86400);
             span.textContent = years >= 2
                 ? d.getFullYear().toString()
                 : d.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
@@ -1867,7 +1874,7 @@
             title.textContent = 'Contributors';
             host.appendChild(title);
 
-            const recentLabel = `Recent (${data.recentDays}d)`;
+            const recentLabel = `Recent (${data.recentDays || 365}d)`;
             host.appendChild(buildControls(recentLabel));
 
             const { rows } = computeRows(rootNode);
@@ -2023,7 +2030,7 @@
                 host.appendChild(sub);
             }
 
-            const recentLabel = `Recent (${data.recentDays}d)`;
+            const recentLabel = `Recent (${data.recentDays || 365}d)`;
             host.appendChild(buildControls(recentLabel));
 
             // Find all folders where this person has activity

@@ -42,6 +42,8 @@ node generate.js [repoPath] [outFile] [options]
 | `outFile` | `contributions.json` | Path to write the output JSON |
 | `--recent-days N` | `365` | Window (in days) used for the "Recent" scope in the viewer |
 | `--half-life N` | `365` | Half-life (in days) for the recency-weighted score |
+| `--skip-blame` | — | Skip the blame pass (faster; omits live-line ownership and file-count data) |
+| `--max-blame-files N` | `5000` | Maximum number of files to run `git blame` on |
 
 **Examples**
 
@@ -54,6 +56,9 @@ node generate.js ~/code/myproject ~/Desktop/myproject-experts.json
 
 # shorten the recent window to 6 months
 node generate.js ~/code/myproject out.json --recent-days 180
+
+# skip the blame pass (faster for large repos; disables the Blame metric in the viewer)
+node generate.js ~/code/myproject out.json --skip-blame
 ```
 
 **Notes**
@@ -84,6 +89,7 @@ Open `index.html` in any modern browser (Chrome, Firefox, Safari, Edge).
 | **Commits** | Distinct commits that touched anything in this folder's subtree |
 | **Commits + Lines** | 70% commit share + 30% line-churn share (combined weighted rank) |
 | **Recency-weighted** | Each commit contributes `0.5^(age / half-life)` — recent work counts more |
+| **Blame** | Current lines of code attributed to each author via `git blame` (only available when blame data was generated; hidden otherwise) |
 
 ### Scope toggle
 
