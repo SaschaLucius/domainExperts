@@ -613,7 +613,7 @@
         let currentPath = null;
         let currentMetric = 'commits';   // 'commits' | 'combined' | 'recency'
         let treeMetric = 'contributors'; // 'contributors' | 'commits' | 'lines'
-        let currentScope = 'all';        // 'all' | 'recent'
+        let currentScope = 'all';        // 'all' | 'recent' | '30d' | '90d' | '180d'
         let currentSortCol = 'share';    // 'contributor' | 'share' | 'commits' | 'lines' | 'lastactive'
         let currentSortDir = 'desc';     // 'asc' | 'desc'
         let coverageSortCol = 'coverage';  // 'expert' | 'coverage'
@@ -939,7 +939,7 @@
                 const key = devKey(c);
                 const parentKey = mergedAccounts.get(key);
                 if (!parentKey || (!ignoreExclusions && excludedDevs.has(parentKey))) continue;
-                if (!extras.has(parentKey)) extras.set(parentKey, { commits: 0, lines: 0, linesAdded: 0, linesRemoved: 0, commitsRecent: 0, linesRecent: 0, linesAddedRecent: 0, linesRemovedRecent: 0, score: 0, lastTs: 0, firstTs: 0 });
+                if (!extras.has(parentKey)) extras.set(parentKey, { commits: 0, lines: 0, linesAdded: 0, linesRemoved: 0, commitsRecent: 0, linesRecent: 0, linesAddedRecent: 0, linesRemovedRecent: 0, commits30: 0, commits90: 0, commits180: 0, lines30: 0, lines90: 0, lines180: 0, score: 0, lastTs: 0, firstTs: 0 });
                 const ex = extras.get(parentKey);
                 ex.commits += c.commits || 0;
                 ex.lines += c.lines || 0;
@@ -949,6 +949,12 @@
                 ex.linesRecent += c.linesRecent || 0;
                 ex.linesAddedRecent += c.linesAddedRecent || 0;
                 ex.linesRemovedRecent += c.linesRemovedRecent || 0;
+                ex.commits30 += c.commits30 || 0;
+                ex.commits90 += c.commits90 || 0;
+                ex.commits180 += c.commits180 || 0;
+                ex.lines30 += c.lines30 || 0;
+                ex.lines90 += c.lines90 || 0;
+                ex.lines180 += c.lines180 || 0;
                 ex.score += c.score || 0;
                 if (c.lastTs) ex.lastTs = Math.max(ex.lastTs, c.lastTs);
                 if (c.firstTs) { if (!ex.firstTs || c.firstTs < ex.firstTs) ex.firstTs = c.firstTs; }
@@ -969,14 +975,28 @@
                         linesRecent: (c.linesRecent || 0) + ex.linesRecent,
                         linesAddedRecent: (c.linesAddedRecent || 0) + (ex.linesAddedRecent || 0),
                         linesRemovedRecent: (c.linesRemovedRecent || 0) + (ex.linesRemovedRecent || 0),
+                        commits30: (c.commits30 || 0) + (ex.commits30 || 0),
+                        commits90: (c.commits90 || 0) + (ex.commits90 || 0),
+                        commits180: (c.commits180 || 0) + (ex.commits180 || 0),
+                        lines30: (c.lines30 || 0) + (ex.lines30 || 0),
+                        lines90: (c.lines90 || 0) + (ex.lines90 || 0),
+                        lines180: (c.lines180 || 0) + (ex.lines180 || 0),
                         score: (c.score || 0) + ex.score,
                         lastTs: ex.lastTs > (c.lastTs || 0) ? ex.lastTs : c.lastTs,
                         firstTs: (c.firstTs || ex.firstTs) ? Math.min(c.firstTs || Infinity, ex.firstTs || Infinity) : 0,
                     } : c;
                     return {
                         c: ec,
-                        commitsVal: scope === 'recent' ? ec.commitsRecent : ec.commits,
-                        linesVal: scope === 'recent' ? ec.linesRecent : ec.lines,
+                        commitsVal: scope === 'recent' ? ec.commitsRecent
+                                  : scope === '30d'    ? (ec.commits30 || 0)
+                                  : scope === '90d'    ? (ec.commits90 || 0)
+                                  : scope === '180d'   ? (ec.commits180 || 0)
+                                  : ec.commits,
+                        linesVal: scope === 'recent' ? ec.linesRecent
+                                : scope === '30d'    ? (ec.lines30 || 0)
+                                : scope === '90d'    ? (ec.lines90 || 0)
+                                : scope === '180d'   ? (ec.lines180 || 0)
+                                : ec.lines,
                         linesAddedVal: scope === 'recent' ? (ec.linesAddedRecent || 0) : (ec.linesAdded || 0),
                         linesRemovedVal: scope === 'recent' ? (ec.linesRemovedRecent || 0) : (ec.linesRemoved || 0),
                         raw: 0,
@@ -1051,11 +1071,14 @@
                 const summary = document.createElement('div');
                 summary.className = 'summary';
                 const activeRows = rows.filter((r) => r.commitsVal > 0 || currentMetric === 'recency');
+                const scopeLabel = scope === 'recent' ? recentLabel
+                    : scope === '30d' ? 'last 30d' : scope === '90d' ? 'last 90d'
+                    : scope === '180d' ? 'last 180d' : '';
                 summary.innerHTML =
                     `<b>${activeRows.length}</b> contributor${activeRows.length === 1 ? '' : 's'} · ` +
                     `<b>${sumC.toLocaleString()}</b> commits · ` +
                     `<b>${sumL.toLocaleString()}</b> lines changed` +
-                    (scope === 'recent' ? ` · ${recentLabel}` : '');
+                    (scopeLabel ? ` · ${scopeLabel}` : '');
                 host.appendChild(summary);
 
                 const table = buildTable(rows);
@@ -1148,6 +1171,9 @@
 
             const scopeButtons = [
                 { id: 'all', label: 'All time' },
+                { id: '30d', label: '30d' },
+                { id: '90d', label: '90d' },
+                { id: '180d', label: '180d' },
                 { id: 'recent', label: recentLabel },
             ];
             const scopeGroup = segmented('Time scope', scopeButtons, currentScope,

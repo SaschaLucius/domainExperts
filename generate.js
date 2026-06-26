@@ -90,6 +90,9 @@ function main() {
   const opts = parseArgs(process.argv.slice(2));
   const nowTs = Math.floor(Date.now() / 1000);
   const recentCutoff = nowTs - opts.recentDays * 86400;
+  const cutoff30  = nowTs - 30  * 86400;
+  const cutoff90  = nowTs - 90  * 86400;
+  const cutoff180 = nowTs - 180 * 86400;
 
   // Control characters used as field/record markers so arbitrary author names
   // and paths can never collide with the delimiter.
@@ -121,6 +124,8 @@ function main() {
       st = { name, email, commits: 0, commitsRecent: 0, lines: 0,
         linesAdded: 0, linesRemoved: 0, linesRecent: 0,
         linesAddedRecent: 0, linesRemovedRecent: 0,
+        commits30: 0, commits90: 0, commits180: 0,
+        lines30: 0, lines90: 0, lines180: 0,
         lastTs: 0, firstTs: 0, score: 0 };
       authors.set(key, st);
     }
@@ -172,11 +177,17 @@ function main() {
         st.linesAddedRecent += added;
         st.linesRemovedRecent += removed;
       }
+      if (cur.ts >= cutoff30)  st.lines30  += churn;
+      if (cur.ts >= cutoff90)  st.lines90  += churn;
+      if (cur.ts >= cutoff180) st.lines180 += churn;
       if (!seenDirs.has(dir)) {
         // count each commit at most once per folder
         seenDirs.add(dir);
         st.commits += 1;
         if (inRecent) st.commitsRecent += 1;
+        if (cur.ts >= cutoff30)  st.commits30  += 1;
+        if (cur.ts >= cutoff90)  st.commits90  += 1;
+        if (cur.ts >= cutoff180) st.commits180 += 1;
         st.score += weight;
         if (!st.firstTs || cur.ts < st.firstTs) st.firstTs = cur.ts;
       }
@@ -211,6 +222,12 @@ function main() {
           linesRecent: st.linesRecent,
           linesAddedRecent: st.linesAddedRecent,
           linesRemovedRecent: st.linesRemovedRecent,
+          commits30: st.commits30,
+          commits90: st.commits90,
+          commits180: st.commits180,
+          lines30: st.lines30,
+          lines90: st.lines90,
+          lines180: st.lines180,
           lastTs: st.lastTs,
           firstTs: st.firstTs,
           score: Math.round(st.score * 10000) / 10000,
