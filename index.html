@@ -586,6 +586,8 @@
         let mergedAccounts = new Map();  // childDevKey -> parentDevKey
         let peopleSortCol = 'commits';    // 'contributor' | 'commits' | 'lines' | 'lastactive'
         let peopleSortDir = 'desc';
+        let personDomainsSortCol = 'rank'; // 'folder' | 'rank' | 'share' | 'commits' | 'lines' | 'lastactive'
+        let personDomainsSortDir = 'asc';
         let currentPersonKey = null;      // null = list view; string = person detail view
         let peopleFilterQ = '';           // live filter text in People tab
         let exclusionsFilterQ = '';       // live filter text in Exclusions tab
@@ -657,6 +659,8 @@
             currentTab = 'contributors';
             peopleSortCol = 'commits';
             peopleSortDir = 'desc';
+            personDomainsSortCol = 'rank';
+            personDomainsSortDir = 'asc';
             currentPersonKey = null;
             peopleFilterQ = '';
             exclusionsFilterQ = '';
@@ -1170,8 +1174,8 @@
                 { id: 'contributors', label: 'Contributors' },
                 { id: 'domains', label: 'Domain Map' },
                 { id: 'pinned', label: pinnedLabel },
-                { id: 'exclusions', label: excludedLabel },
                 { id: 'people', label: 'People' },
+                { id: 'exclusions', label: excludedLabel },
             ]) {
                 const btn = document.createElement('button');
                 btn.textContent = t.label;
@@ -1526,17 +1530,17 @@
                 noneOpt.value = '';
                 noneOpt.textContent = '\u2014 (none)';
                 sel.appendChild(noneOpt);
-                // Valid parents: not self, not already a child themselves
+                // Valid parents: not self, not already a child themselves, not excluded, not already merged
                 const validParents = allContribs.filter(p => {
                     const pk = devKey(p);
-                    return pk !== key && !mergedAccounts.has(pk);
-                });
+                    return pk !== key && !mergedAccounts.has(pk) && !excludedDevs.has(pk);
+                }).sort((a, b) => (a.email || a.name || '').localeCompare(b.email || b.name || ''));
                 let parentFound = !parentKey;
                 for (const parent of validParents) {
                     const pk = devKey(parent);
                     const opt = document.createElement('option');
                     opt.value = pk;
-                    opt.textContent = parent.name || parent.email || '(unknown)';
+                    opt.textContent = parent.email || parent.name || '(unknown)';
                     if (pk === parentKey) { opt.selected = true; parentFound = true; }
                     sel.appendChild(opt);
                 }
@@ -1546,7 +1550,7 @@
                     if (orphanC) {
                         const opt = document.createElement('option');
                         opt.value = parentKey;
-                        opt.textContent = (orphanC.name || orphanC.email || '(unknown)') + ' \u26A0';
+                        opt.textContent = (orphanC.email || orphanC.name || '(unknown)') + ' \u26A0';
                         opt.selected = true;
                         sel.appendChild(opt);
                     }
@@ -1861,7 +1865,17 @@
                     commitsVal: r.commitsVal, linesVal: r.linesVal, lastTs: r.c.lastTs
                 });
             }
-            domains.sort((a, b) => a.rank - b.rank || b.pct - a.pct || a.path.localeCompare(b.path));
+            const _pdd = personDomainsSortDir === 'asc' ? 1 : -1;
+            domains.sort((a, b) => {
+                switch (personDomainsSortCol) {
+                    case 'folder': return _pdd * a.path.localeCompare(b.path);
+                    case 'share': return _pdd * (a.pct - b.pct);
+                    case 'commits': return _pdd * (a.commitsVal - b.commitsVal);
+                    case 'lines': return _pdd * (a.linesVal - b.linesVal);
+                    case 'lastactive': return _pdd * ((a.lastTs || 0) - (b.lastTs || 0));
+                    default: return _pdd * (a.rank - b.rank) || b.pct - a.pct || a.path.localeCompare(b.path);
+                }
+            });
 
             const topCount = domains.filter(d => d.rank === 1).length;
 
@@ -1893,17 +1907,24 @@
 
             const thead = document.createElement('thead');
             const hdrRow = document.createElement('tr');
-            for (const { label, cls } of [
-                { label: 'Folder', cls: '' },
-                { label: 'Rank', cls: 'num' },
-                { label: 'Share', cls: 'bar-cell' },
-                { label: 'Commits', cls: 'num' },
-                { label: 'Lines', cls: 'num' },
-                { label: 'Last active', cls: '' },
+            for (const { id, label, cls } of [
+                { id: 'folder', label: 'Folder', cls: '' },
+                { id: 'rank', label: 'Rank', cls: 'num' },
+                { id: 'share', label: 'Share', cls: 'bar-cell' },
+                { id: 'commits', label: 'Commits', cls: 'num' },
+                { id: 'lines', label: 'Lines', cls: 'num' },
+                { id: 'lastactive', label: 'Last active', cls: '' },
             ]) {
                 const th = document.createElement('th');
                 th.textContent = label;
                 if (cls) th.className = cls;
+                th.classList.add('sortable');
+                if (id === personDomainsSortCol) th.classList.add(personDomainsSortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+                th.addEventListener('click', () => {
+                    if (personDomainsSortCol === id) personDomainsSortDir = personDomainsSortDir === 'desc' ? 'asc' : 'desc';
+                    else { personDomainsSortCol = id; personDomainsSortDir = id === 'folder' ? 'asc' : (id === 'rank' ? 'asc' : 'desc'); }
+                    renderDetails(currentPath);
+                });
                 hdrRow.appendChild(th);
             }
             thead.appendChild(hdrRow);
