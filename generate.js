@@ -21,17 +21,19 @@ const { spawn } = require('child_process');
 const readline = require('readline');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 // ---- CLI parsing ----------------------------------------------------------
 function parseArgs(argv) {
-  const opts = { repo: '.', out: 'contributions.json', recentDays: 365, halfLifeDays: 365, skipBlame: false, maxBlameFiles: 5000 };
+  const opts = { repo: '.', out: 'contributions.json', recentDays: 365, halfLifeDays: 365, skipBlame: false, maxBlameFiles: Infinity, concurrency: Math.max(1, os.cpus().length) };
   const positional = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--recent-days') opts.recentDays = parseFloat(argv[++i]);
     else if (a === '--half-life') opts.halfLifeDays = parseFloat(argv[++i]);
     else if (a === '--skip-blame') opts.skipBlame = true;
-    else if (a === '--max-blame-files') opts.maxBlameFiles = parseInt(argv[++i], 10) || 5000;
+    else if (a === '--max-blame-files') opts.maxBlameFiles = parseInt(argv[++i], 10) || Infinity;
+    else if (a === '--concurrency' || a === '-j') opts.concurrency = parseInt(argv[++i], 10) || opts.concurrency;
     else if (a === '-h' || a === '--help') { printHelp(); process.exit(0); }
     else positional.push(a);
   }
@@ -39,6 +41,7 @@ function parseArgs(argv) {
   if (positional[1]) opts.out = positional[1];
   if (!(opts.recentDays > 0)) opts.recentDays = 365;
   if (!(opts.halfLifeDays > 0)) opts.halfLifeDays = 365;
+  if (!(opts.concurrency > 0)) opts.concurrency = 1;
   return opts;
 }
 
@@ -56,7 +59,8 @@ Options:
   --recent-days N      Window (days) for "recent" metrics (default: 365)
   --half-life N        Half-life (days) for the recency-weighted score (default: 365)
   --skip-blame         Skip the blame pass (faster; omits live-line ownership data)
-  --max-blame-files N  Max files to run git blame on (default: 5000)
+  --max-blame-files N  Cap how many files to run git blame on (default: no limit)
+  -j, --concurrency N  Parallel git blame workers (default: # CPU cores)
   -h, --help           Show this help
 `);
 }
@@ -101,6 +105,7 @@ function blameOneFile(repo, filePath, blameTree, cb) {
   const rl = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
 
   const shaEmailCache = new Map();
+  const fileCounts = new Map(); // email -> live-line count for THIS file
   let curSha = null;
   let curEmail = null;
   let done = false;
@@ -109,11 +114,7 @@ function blameOneFile(repo, filePath, blameTree, cb) {
     if (!line) return;
     if (line.charCodeAt(0) === 9 /* \t = content line */) {
       if (curEmail && curEmail !== 'not.committed.yet') {
-        for (const dir of dirs) {
-          let m = blameTree.get(dir);
-          if (!m) { m = new Map(); blameTree.set(dir, m); }
-          m.set(curEmail, (m.get(curEmail) || 0) + 1);
-        }
+        fileCounts.set(curEmail, (fileCounts.get(curEmail) || 0) + 1);
       }
       return;
     }
@@ -129,7 +130,22 @@ function blameOneFile(repo, filePath, blameTree, cb) {
     }
   });
 
-  function finish() { if (!done) { done = true; cb(); } }
+  function finish() {
+    if (done) return;
+    done = true;
+    // Fold this file's per-email tallies into every ancestor folder once,
+    // instead of touching every folder on each individual content line.
+    if (fileCounts.size) {
+      for (const dir of dirs) {
+        let m = blameTree.get(dir);
+        if (!m) { m = new Map(); blameTree.set(dir, m); }
+        for (const [email, n] of fileCounts) {
+          m.set(email, (m.get(email) || 0) + n);
+        }
+      }
+    }
+    cb();
+  }
   rl.on('close', finish);
   child.on('close', finish);
   child.stderr.resume();
@@ -137,8 +153,13 @@ function blameOneFile(repo, filePath, blameTree, cb) {
 }
 
 // Enumerate all tracked files (for folder file counts), then blame up to
-// maxFiles of them for per-author live-line ownership.
-function runBlamePass(repo, maxFiles, callback) {
+// maxFiles of them for per-author live-line ownership. Blame is run by a pool
+// of `concurrency` workers, since each `git blame` is independent and the bulk
+// of the cost is in the git subprocess rather than this process's JS.
+function runBlamePass(repo, maxFiles, concurrency, callback) {
+  let finished = false;
+  function done(result) { if (!finished) { finished = true; callback(result); } }
+
   const lsChild = spawn('git',
     ['-C', repo, '-c', 'core.quotePath=false', 'ls-files'],
     { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -160,24 +181,37 @@ function runBlamePass(repo, maxFiles, callback) {
     }
 
     const blameTree = new Map();
+    const workers = Math.max(1, Math.min(concurrency, toBlame.length));
     let idx = 0;
-    function next() {
-      if (idx >= toBlame.length) {
+    let completed = 0;
+
+    function onOneDone() {
+      completed++;
+      if (completed % 100 === 0 || completed === toBlame.length) {
+        process.stderr.write(`\rBlame: ${completed}/${toBlame.length} files (${workers} workers)...`);
+      }
+      if (completed >= toBlame.length) {
         if (toBlame.length > 0) process.stderr.write('\n');
-        callback({ blameTree, totalFilesTree });
+        done({ blameTree, totalFilesTree });
         return;
       }
-      const file = toBlame[idx++];
-      if (idx % 100 === 0 || idx === toBlame.length) {
-        process.stderr.write(`\rBlame: ${idx}/${toBlame.length} files...`);
-      }
-      blameOneFile(repo, file, blameTree, next);
+      pump();
     }
-    next();
+
+    // Keep up to `workers` blame subprocesses in flight at all times.
+    function pump() {
+      while (idx < toBlame.length && (idx - completed) < workers) {
+        const file = toBlame[idx++];
+        blameOneFile(repo, file, blameTree, onOneDone);
+      }
+    }
+
+    if (toBlame.length === 0) { done({ blameTree, totalFilesTree }); return; }
+    pump();
   });
   lsChild.stderr.resume();
-  lsChild.on('error', () => callback(null));
-  lsChild.on('close', (code) => { if (code !== 0) callback(null); });
+  lsChild.on('error', () => done(null));
+  lsChild.on('close', (code) => { if (code !== 0) done(null); });
 }
 
 // ---- main -----------------------------------------------------------------
@@ -304,7 +338,7 @@ function main() {
     if (opts.skipBlame) {
       writeOutput(null);
     } else {
-      runBlamePass(opts.repo, opts.maxBlameFiles, writeOutput);
+      runBlamePass(opts.repo, opts.maxBlameFiles, opts.concurrency, writeOutput);
     }
   }
 

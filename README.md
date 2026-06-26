@@ -43,7 +43,8 @@ node generate.js [repoPath] [outFile] [options]
 | `--recent-days N` | `365` | Window (in days) used for the "Recent" scope in the viewer |
 | `--half-life N` | `365` | Half-life (in days) for the recency-weighted score |
 | `--skip-blame` | — | Skip the blame pass (faster; omits live-line ownership and file-count data) |
-| `--max-blame-files N` | `5000` | Maximum number of files to run `git blame` on |
+| `--max-blame-files N` | no limit | Optional cap on how many files to run `git blame` on |
+| `-j, --concurrency N` | # CPU cores | Number of parallel `git blame` workers (the blame pass is the slowest stage) |
 
 **Examples**
 
@@ -59,6 +60,9 @@ node generate.js ~/code/myproject out.json --recent-days 180
 
 # skip the blame pass (faster for large repos; disables the Blame metric in the viewer)
 node generate.js ~/code/myproject out.json --skip-blame
+
+# speed up the blame pass on a large repo with more parallel workers
+node generate.js ~/code/myproject out.json -j 16
 ```
 
 **Notes**
