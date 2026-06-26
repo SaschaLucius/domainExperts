@@ -636,6 +636,7 @@
         let peopleFilterQ = '';           // live filter text in People tab
         let exclusionsFilterQ = '';       // live filter text in Exclusions tab
         let ignoreExclusions = false;     // temporarily show excluded devs (merges still apply)
+        let currentLinesView = 'changed'; // 'changed' | 'added' | 'removed'
 
         // ---- exclusion persistence -----------------------------------------------
         function storageKey() {
@@ -741,6 +742,11 @@
                 data.hasBlame = data.nodes.some(n => n.totalFiles !== undefined);
             }
 
+            // Auto-detect linesAdded/linesRemoved presence.
+            if (!('hasLinesAddedRemoved' in data)) {
+                data.hasLinesAddedRemoved = data.nodes.some(n => n.contributors.some(c => c.linesAdded !== undefined));
+            }
+
             // Derive parent → children from the set of folder paths.
             for (const node of data.nodes) {
                 const p = node.path;
@@ -774,6 +780,7 @@
             // reset controls
             currentMetric = 'commits';
             currentScope = 'all';
+            currentLinesView = 'changed';
 
             // restore saved exclusions for this repo
             loadExclusions();
@@ -1210,6 +1217,18 @@
 
             wrap.appendChild(metricGroup);
             wrap.appendChild(scopeGroup);
+
+            if (data.hasLinesAddedRemoved && currentMetric !== 'blame') {
+                const linesButtons = [
+                    { id: 'changed', label: 'Changed' },
+                    { id: 'added',   label: 'Added' },
+                    { id: 'removed', label: 'Removed' },
+                ];
+                const linesGroup = segmented('Lines', linesButtons, currentLinesView,
+                    (id) => { currentLinesView = id; renderDetails(currentPath); });
+                wrap.appendChild(linesGroup);
+            }
+
             return wrap;
         }
 
@@ -1241,7 +1260,12 @@
                 switch (currentSortCol) {
                     case 'contributor': return dir * ((a.c.name || a.c.email || '').localeCompare(b.c.name || b.c.email || ''));
                     case 'commits': return dir * (a.commitsVal - b.commitsVal);
-                    case 'lines': return dir * (a.linesVal - b.linesVal);
+                    case 'lines': {
+                        const lv = r => currentLinesView === 'added' ? r.linesAddedVal
+                                      : currentLinesView === 'removed' ? r.linesRemovedVal
+                                      : r.linesVal;
+                        return dir * (lv(a) - lv(b));
+                    }
                     case 'lastactive': {
                         if (!a.c.lastTs && b.c.lastTs) return 1;
                         if (a.c.lastTs && !b.c.lastTs) return -1;
@@ -1276,7 +1300,7 @@
                 { id: 'contributor', label: 'Contributor', cls: '' },
                 { id: 'share', label: 'Share', cls: 'bar-cell' },
                 { id: 'commits', label: 'Commits', cls: 'num' },
-                { id: 'lines', label: currentMetric === 'blame' ? 'Live lines' : 'Lines', cls: 'num' },
+                { id: 'lines', label: currentMetric === 'blame' ? 'Live lines' : currentLinesView === 'added' ? 'Lines added' : currentLinesView === 'removed' ? 'Lines removed' : 'Lines changed', cls: 'num' },
                 { id: 'firstactive', label: 'First active', cls: '' },
                 { id: 'lastactive', label: 'Last active', cls: '' },
             ];
@@ -1339,8 +1363,12 @@
 
                 const tdLines = document.createElement('td');
                 tdLines.className = 'num';
-                tdLines.textContent = (currentMetric === 'blame' ? r.blameVal : r.linesVal).toLocaleString();
-                if (currentMetric !== 'blame' && (r.linesAddedVal || r.linesRemovedVal))
+                const linesDisplayVal = currentMetric === 'blame' ? r.blameVal
+                    : currentLinesView === 'added' ? r.linesAddedVal
+                    : currentLinesView === 'removed' ? r.linesRemovedVal
+                    : r.linesVal;
+                tdLines.textContent = linesDisplayVal.toLocaleString();
+                if (currentMetric !== 'blame' && currentLinesView === 'changed' && (r.linesAddedVal || r.linesRemovedVal))
                     tdLines.title = `+${r.linesAddedVal.toLocaleString()} / −${r.linesRemovedVal.toLocaleString()}`;
 
                 const tdFirst = document.createElement('td');
