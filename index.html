@@ -534,6 +534,9 @@
         <h1>Domain Experts</h1>
         <div class="meta" id="repo-meta"></div>
         <div class="spacer"></div>
+        <label class="file-label" id="ignore-excl-label" hidden>
+            <input type="checkbox" id="ignore-excl-cb" /> Ignore exclusions
+        </label>
         <label class="file-label">
             📂 Load contributions.json
             <input type="file" id="file-input" accept="application/json,.json" />
@@ -596,6 +599,7 @@
         let currentPersonKey = null;      // null = list view; string = person detail view
         let peopleFilterQ = '';           // live filter text in People tab
         let exclusionsFilterQ = '';       // live filter text in Exclusions tab
+        let ignoreExclusions = false;     // temporarily show excluded devs (merges still apply)
 
         // ---- exclusion persistence -----------------------------------------------
         function storageKey() {
@@ -659,6 +663,11 @@
             reader.readAsText(file);
         });
 
+        document.getElementById('ignore-excl-cb').addEventListener('change', (e) => {
+            ignoreExclusions = e.target.checked;
+            if (currentPath !== null) renderDetails(currentPath);
+        });
+
         function loadData(json) {
             data = json;
             nodesByPath = new Map();
@@ -684,6 +693,10 @@
             currentPersonKey = null;
             peopleFilterQ = '';
             exclusionsFilterQ = '';
+            ignoreExclusions = false;
+            const cb = document.getElementById('ignore-excl-cb');
+            if (cb) cb.checked = false;
+            document.getElementById('ignore-excl-label').hidden = false;
 
             for (const node of data.nodes) nodesByPath.set(node.path, node);
 
@@ -867,7 +880,7 @@
             for (const c of node.contributors) {
                 const key = devKey(c);
                 const parentKey = mergedAccounts.get(key);
-                if (!parentKey || excludedDevs.has(parentKey)) continue;
+                if (!parentKey || (!ignoreExclusions && excludedDevs.has(parentKey))) continue;
                 if (!extras.has(parentKey)) extras.set(parentKey, { commits: 0, lines: 0, commitsRecent: 0, linesRecent: 0, score: 0, lastTs: 0 });
                 const ex = extras.get(parentKey);
                 ex.commits += c.commits || 0;
@@ -879,7 +892,7 @@
             }
 
             const rows = node.contributors
-                .filter(c => !excludedDevs.has(devKey(c)) && !mergedAccounts.has(devKey(c)))
+                .filter(c => (ignoreExclusions || !excludedDevs.has(devKey(c))) && !mergedAccounts.has(devKey(c)))
                 .map((c) => {
                     const key = devKey(c);
                     const ex = extras.get(key);
