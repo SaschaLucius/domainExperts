@@ -612,9 +612,9 @@
         let childrenByPath = new Map();  // parentPath -> [childPath,...]
         let treeIndex = new Map();       // path -> { row, expand, syncPin }
         let currentPath = null;
-        let currentMetric = 'commits';   // 'commits' | 'combined' | 'recency' | 'blame'
+        let currentMetric = 'commits';   // 'commits' | 'combined' | 'blame'
         let treeMetric = 'contributors'; // 'contributors' | 'commits' | 'lines'
-        let currentScope = 'all';        // 'all' | 'recent' | '30d' | '90d' | '180d'
+        let currentScope = 'all';        // 'all' | '30d' | '90d' | '180d' | 'recent' | 'recency'
         let currentSortCol = 'share';    // 'contributor' | 'share' | 'commits' | 'lines' | 'lastactive'
         let currentSortDir = 'desc';     // 'asc' | 'desc'
         let coverageSortCol = 'coverage';  // 'expert' | 'coverage'
@@ -1051,7 +1051,7 @@
         }
 
         function computeRows(node) {
-            const scope = (currentMetric === 'recency' || currentMetric === 'blame') ? 'all' : currentScope;
+            const scope = currentMetric === 'blame' ? 'all' : currentScope;
             const { rows, sumC, sumL, sumScore, sumBlame } = buildScopedRows(node, scope);
 
             let sumLinesCalc = sumL;
@@ -1066,8 +1066,8 @@
             }
 
             for (const r of rows) {
-                if (currentMetric === 'commits') r.raw = r.commitsVal;
-                else if (currentMetric === 'recency') r.raw = r.c.score;
+                if (scope === 'recency') r.raw = r.c.score;
+                else if (currentMetric === 'commits') r.raw = r.commitsVal;
                 else if (currentMetric === 'blame') r.raw = r.blameVal;
                 else {
                     const lv = currentLinesView === 'added' ? r.linesAddedVal
@@ -1093,7 +1093,7 @@
             host.hidden = false;
 
             const node = nodesByPath.get(p);
-            const recentLabel = `Recent (${data.recentDays || 365}d)`;
+            const recentLabel = `${data.recentDays || 365}d`;
 
             host.innerHTML = '';
 
@@ -1132,10 +1132,10 @@
 
                 const summary = document.createElement('div');
                 summary.className = 'summary';
-                const activeRows = rows.filter((r) => r.commitsVal > 0 || currentMetric === 'recency' || currentMetric === 'blame');
+                const activeRows = rows.filter((r) => r.commitsVal > 0 || currentScope === 'recency' || currentMetric === 'blame');
                 const scopeLabel = scope === 'recent' ? recentLabel
                     : scope === '30d' ? 'last 30d' : scope === '90d' ? 'last 90d'
-                    : scope === '180d' ? 'last 180d' : '';
+                    : scope === '180d' ? 'last 180d' : scope === 'recency' ? 'recency-weighted' : '';
                 const summaryStr = currentMetric === 'blame'
                     ? `<b>${activeRows.length}</b> contributor${activeRows.length === 1 ? '' : 's'} · <b>${sumBlame.toLocaleString()}</b> live lines`
                     : `<b>${activeRows.length}</b> contributor${activeRows.length === 1 ? '' : 's'} · ` +
@@ -1174,8 +1174,8 @@
                 if (currentMetric === 'combined') {
                     const linesType = currentLinesView === 'added' ? 'added' : currentLinesView === 'removed' ? 'removed' : 'changed';
                     note.textContent = `Lines: contributor share by lines ${linesType}.`;
-                } else if (currentMetric === 'recency') {
-                    note.textContent = `Recency-weighted: each commit decays with a ${data.halfLifeDays || 365}-day half-life (scope toggle disabled).`;
+                } else if (currentScope === 'recency') {
+                    note.textContent = `Recency-weighted: each commit decays with a ${data.halfLifeDays || 365}-day half-life.`;
                 } else if (currentMetric === 'blame') {
                     note.textContent = 'Blame: current lines of code attributed to each author via git blame (scope toggle disabled).';
                 } else {
@@ -1234,11 +1234,10 @@
             const metricButtons = [
                 { id: 'commits', label: 'Commits' },
                 { id: 'combined', label: 'Lines' },
-                { id: 'recency', label: 'Recency-weighted' },
             ];
             if (data.hasBlame) metricButtons.push({ id: 'blame', label: 'Blame' });
             const metricGroup = segmented('Metric', metricButtons, currentMetric,
-                (id) => { currentMetric = id; renderDetails(currentPath); });
+                (id) => { currentMetric = id; if (id === 'combined' && currentScope === 'recency') currentScope = 'all'; renderDetails(currentPath); });
 
             const scopeButtons = [
                 { id: 'all', label: 'All time' },
@@ -1247,12 +1246,13 @@
                 { id: '180d', label: '180d' },
                 { id: 'recent', label: recentLabel },
             ];
+            if (currentMetric !== 'combined') scopeButtons.push({ id: 'recency', label: 'Recency-weighted' });
             const scopeGroup = segmented('Time scope', scopeButtons, currentScope,
                 (id) => { currentScope = id; renderDetails(currentPath); },
-                currentMetric === 'recency' || currentMetric === 'blame');
+                currentMetric === 'blame');
 
             wrap.appendChild(metricGroup);
-            wrap.appendChild(scopeGroup);
+            if (currentMetric !== 'blame') wrap.appendChild(scopeGroup);
 
             if (data.hasLinesAddedRemoved && currentMetric !== 'blame') {
                 const linesButtons = [
@@ -1369,8 +1369,8 @@
             let rank = 0;
             for (const r of rows) {
                 if (currentMetric === 'blame' && r.blameVal === 0) continue;
-                if (currentMetric !== 'recency' && currentMetric !== 'blame' && r.commitsVal === 0) continue;
-                if (currentMetric === 'recency' && r.c.score === 0) continue;
+                if (currentMetric !== 'blame' && currentScope !== 'recency' && r.commitsVal === 0) continue;
+                if (currentScope === 'recency' && r.c.score === 0) continue;
                 rank++;
                 const tr = document.createElement('tr');
 
@@ -1488,7 +1488,7 @@
         function topExpert(node) {
             if (!node) return null;
             const { rows } = computeRows(node);
-            const active = rows.filter(r => currentMetric === 'recency' ? r.c.score > 0 : r.commitsVal > 0);
+            const active = rows.filter(r => currentScope === 'recency' ? r.c.score > 0 : r.commitsVal > 0);
             return active.length > 0 ? { contributor: active[0].c, pct: active[0].pct } : null;
         }
 
@@ -1938,7 +1938,7 @@
             title.textContent = 'Contributors';
             host.appendChild(title);
 
-            const recentLabel = `Recent (${data.recentDays || 365}d)`;
+            const recentLabel = `${data.recentDays || 365}d`;
             host.appendChild(buildControls(recentLabel));
 
             const { rows } = computeRows(rootNode);
@@ -2094,14 +2094,14 @@
                 host.appendChild(sub);
             }
 
-            const recentLabel = `Recent (${data.recentDays || 365}d)`;
+            const recentLabel = `${data.recentDays || 365}d`;
             host.appendChild(buildControls(recentLabel));
 
             // Find all folders where this person has activity
             const domains = [];
             for (const [p, node] of nodesByPath) {
                 const { rows } = computeRows(node);
-                const active = rows.filter(r => currentMetric === 'recency' ? r.c.score > 0 : r.commitsVal > 0);
+                const active = rows.filter(r => currentScope === 'recency' ? r.c.score > 0 : r.commitsVal > 0);
                 const idx = active.findIndex(r => devKey(r.c) === personKey);
                 if (idx === -1) continue;
                 const r = active[idx];
